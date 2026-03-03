@@ -79,9 +79,35 @@
     }
   }
 
+  // YouTube 전용: 제목, 설명, 댓글, 답글 등 커스텀 요소 수집
+  const YT_SELECTORS = [
+    '#title h1 yt-formatted-string',              // 영상 제목
+    'ytd-text-inline-expander .content',           // 영상 설명 (접힌/펼친)
+    '#content-text',                               // 댓글 및 답글 본문
+  ];
+
+  function collectYouTubeElements(elements, seen) {
+    for (const selector of YT_SELECTORS) {
+      for (const el of document.querySelectorAll(selector)) {
+        if (seen.has(el)) continue;
+        if (el.querySelector('.hotdog-translation')) continue;
+        const text = el.textContent.trim();
+        if (text.length < 2) continue;
+        seen.add(el);
+        elements.push(el);
+      }
+    }
+  }
+
   function getTranslatableElements() {
     const elements = [];
     const seen = new Set();
+
+    // YouTube 페이지: 전용 셀렉터로 수집
+    if (isYouTubeWatch()) {
+      collectYouTubeElements(elements, seen);
+      return elements;
+    }
 
     // 1단계: 콘텐츠 영역 내 블록 요소 수집
     const contentAreas = document.querySelectorAll(CONTENT_AREA_SELECTOR);
@@ -190,9 +216,6 @@
   async function handleTranslate(targetLang, engine, aiConfig) {
     removeTranslations();
 
-    // YouTube 자막 번역을 병렬로 시작
-    const subtitlePromise = handleYouTubeSubtitles(targetLang, engine, aiConfig);
-
     const elements = getTranslatableElements();
 
     const useAI = engine === 'ai' && aiConfig;
@@ -225,13 +248,11 @@
       }
     }
 
-    const subtitleCount = await subtitlePromise;
-
-    if (elements.length === 0 && subtitleCount === 0) {
+    if (elements.length === 0) {
       throw new Error('번역할 텍스트를 찾을 수 없습니다.');
     }
 
-    return { count: translatedCount, subtitleCount };
+    return { count: translatedCount, subtitleCount: 0 };
   }
 
   function removeTranslations() {
