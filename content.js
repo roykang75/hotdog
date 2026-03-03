@@ -165,12 +165,25 @@
     return results;
   }
 
-  function appendTranslation(el, translated, originalText) {
-    if (!translated || translated.toLowerCase() === originalText.toLowerCase()) return false;
+  function addLoading(el) {
+    const loader = document.createElement('span');
+    loader.className = 'hotdog-loading';
+    const shine = document.createElement('span');
+    shine.className = 'hotdog-loading-shine';
+    loader.appendChild(shine);
+    el.appendChild(loader);
+    return loader;
+  }
+
+  function replaceWithTranslation(loader, el, translated, originalText) {
+    if (!translated || translated.toLowerCase() === originalText.toLowerCase()) {
+      loader.remove();
+      return false;
+    }
     const translationEl = document.createElement('span');
     translationEl.className = 'hotdog-translation';
     translationEl.textContent = translated;
-    el.appendChild(translationEl);
+    el.replaceChild(translationEl, loader);
     return true;
   }
 
@@ -190,19 +203,20 @@
     for (let i = 0; i < elements.length; i += BATCH_SIZE) {
       const batch = elements.slice(i, i + BATCH_SIZE);
       const texts = batch.map((el) => el.textContent.trim());
+      const loaders = batch.map((el) => addLoading(el));
 
       if (useAI) {
         const results = await translateTextWithAI(texts, targetLang, aiConfig);
         batch.forEach((el, idx) => {
-          if (appendTranslation(el, results[idx], texts[idx])) translatedCount++;
+          if (replaceWithTranslation(loaders[idx], el, results[idx], texts[idx])) translatedCount++;
         });
       } else {
         const promises = batch.map(async (el, idx) => {
           try {
             const translated = await translateTextGoogle(texts[idx], targetLang);
-            if (appendTranslation(el, translated.trim(), texts[idx])) translatedCount++;
+            if (replaceWithTranslation(loaders[idx], el, translated.trim(), texts[idx])) translatedCount++;
           } catch {
-            // 개별 실패 시 건너뛰기
+            loaders[idx].remove();
           }
         });
         await Promise.all(promises);
@@ -213,6 +227,6 @@
   }
 
   function removeTranslations() {
-    document.querySelectorAll('.hotdog-translation').forEach((el) => el.remove());
+    document.querySelectorAll('.hotdog-translation, .hotdog-loading').forEach((el) => el.remove());
   }
 })();

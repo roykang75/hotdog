@@ -6,4 +6,34 @@
   font-size: inherit;
   color: inherit;
   word-wrap: break-word;
+  animation: hotdog-fadein 0.3s ease;
+}
+
+@keyframes hotdog-fadein {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 번역 중 로딩 애니메이션 */
+.hotdog-loading {
+  display: block;
+  margin-top: 0.3em;
+  height: 0.9em;
+  width: 60%;
+  border-radius: 4px;
+  background: #d0d0d0;
+  overflow: hidden;
+}
+
+.hotdog-loading-shine {
+  display: block;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), transparent);
+  animation: hotdog-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes hotdog-shimmer {
+  0% { transform: translateX(-150%); }
+  100% { transform: translateX(250%); }
 }
