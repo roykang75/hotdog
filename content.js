@@ -32,7 +32,7 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.action === 'translate') {
-      handleTranslate(message.targetLang)
+      handleTranslate(message.targetLang, message.engine, message.aiConfig)
         .then((count) => sendResponse({ success: true, count }))
         .catch((err) => sendResponse({ success: false, error: err.message }));
       return true;
@@ -108,7 +108,7 @@
     return elements;
   }
 
-  async function translateText(text, targetLang) {
+  async function translateTextGoogle(text, targetLang) {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Translation API error: ${res.status}`);
@@ -116,33 +116,97 @@
     return data[0].map((seg) => seg[0]).join('');
   }
 
-  async function handleTranslate(targetLang) {
+  const LANG_NAMES = {
+    ko: 'Korean', en: 'English', ja: 'Japanese',
+    'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese',
+    es: 'Spanish', fr: 'French', de: 'German',
+    pt: 'Portuguese', vi: 'Vietnamese', th: 'Thai', ru: 'Russian',
+  };
+
+  async function translateTextWithAI(texts, targetLang, aiConfig) {
+    const langName = LANG_NAMES[targetLang] || targetLang;
+    const numbered = texts.map((t, i) => `[${i}] ${t}`).join('\n');
+
+    const res = await fetch(`${aiConfig.endpoint}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${aiConfig.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: aiConfig.model,
+        messages: [
+          {
+            role: 'system',
+            content: `You are a translator. Translate each numbered line to ${langName}. Output ONLY the translated lines in the same [N] format. Do not add any explanation.`,
+          },
+          { role: 'user', content: numbered },
+        ],
+        temperature: 0.1,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`AI API error: ${res.status} ${body.slice(0, 200)}`);
+    }
+
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content || '';
+
+    const results = new Array(texts.length).fill('');
+    for (const line of content.split('\n')) {
+      const match = line.match(/^\[(\d+)\]\s*(.+)/);
+      if (match) {
+        const idx = parseInt(match[1], 10);
+        if (idx >= 0 && idx < texts.length) results[idx] = match[2].trim();
+      }
+    }
+    return results;
+  }
+
+  function appendTranslation(el, translated, originalText) {
+    if (!translated || translated.toLowerCase() === originalText.toLowerCase()) return false;
+    const translationEl = document.createElement('span');
+    translationEl.className = 'hotdog-translation';
+    translationEl.textContent = translated;
+    el.appendChild(translationEl);
+    return true;
+  }
+
+  async function handleTranslate(targetLang, engine, aiConfig) {
     removeTranslations();
 
     const elements = getTranslatableElements();
     if (elements.length === 0) throw new Error('번역할 텍스트를 찾을 수 없습니다.');
 
+    const useAI = engine === 'ai' && aiConfig;
+    if (useAI && (!aiConfig.endpoint || !aiConfig.model || !aiConfig.apiKey)) {
+      throw new Error('AI 설정(Endpoint, Model, API Key)을 모두 입력해주세요.');
+    }
+
     let translatedCount = 0;
 
     for (let i = 0; i < elements.length; i += BATCH_SIZE) {
       const batch = elements.slice(i, i + BATCH_SIZE);
-      const promises = batch.map(async (el) => {
-        const text = el.textContent.trim();
-        try {
-          const translated = await translateText(text, targetLang);
-          if (translated.trim().toLowerCase() === text.toLowerCase()) return;
+      const texts = batch.map((el) => el.textContent.trim());
 
-          const translationEl = document.createElement('span');
-          translationEl.className = 'hotdog-translation';
-          translationEl.textContent = translated;
-          // 요소 안에 추가 (sibling이 아닌 child로 삽입하여 레이아웃 유지)
-          el.appendChild(translationEl);
-          translatedCount++;
-        } catch {
-          // 개별 실패 시 건너뛰기
-        }
-      });
-      await Promise.all(promises);
+      if (useAI) {
+        const results = await translateTextWithAI(texts, targetLang, aiConfig);
+        batch.forEach((el, idx) => {
+          if (appendTranslation(el, results[idx], texts[idx])) translatedCount++;
+        });
+      } else {
+        const promises = batch.map(async (el, idx) => {
+          try {
+            const translated = await translateTextGoogle(texts[idx], targetLang);
+            if (appendTranslation(el, translated.trim(), texts[idx])) translatedCount++;
+          } catch {
+            // 개별 실패 시 건너뛰기
+          }
+        });
+        await Promise.all(promises);
+      }
     }
 
     return translatedCount;

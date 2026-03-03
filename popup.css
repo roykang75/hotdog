@@ -28,6 +28,42 @@ body {
   margin-bottom: 16px;
 }
 
+/* View 전환 */
+.view {
+  display: none;
+}
+
+.view.active {
+  display: block;
+}
+
+/* 뒤로가기 헤더 */
+.view-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.btn-back {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: #555;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.btn-back:hover {
+  background: #f0f0f0;
+}
+
+/* 폼 필드 */
 .field {
   margin-bottom: 14px;
 }
@@ -53,10 +89,26 @@ body {
   transition: border-color 0.2s;
 }
 
-.field select:focus {
+.field select:focus,
+.field input[type="text"]:focus,
+.field input[type="password"]:focus {
   border-color: #f59e0b;
 }
 
+.field input[type="text"],
+.field input[type="password"] {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fafafa;
+  color: #1a1a1a;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+/* 버튼 */
 .btn-translate {
   width: 100%;
   padding: 10px;
@@ -97,6 +149,115 @@ body {
   color: #e74c3c;
 }
 
+.btn-manage {
+  width: 100%;
+  padding: 8px;
+  margin-top: 8px;
+  background: none;
+  color: #888;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.btn-manage:hover {
+  color: #555;
+}
+
+/* 서버 목록 */
+.server-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.server-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1a1a1a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.server-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.server-item-actions button {
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  color: #555;
+  transition: all 0.2s;
+}
+
+.server-item-actions button:hover {
+  border-color: #aaa;
+  color: #1a1a1a;
+}
+
+.server-item-actions button.btn-delete:hover {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
+.server-empty {
+  text-align: center;
+  color: #aaa;
+  font-size: 12px;
+  padding: 20px 0;
+}
+
+.btn-add-server {
+  width: 100%;
+  padding: 10px;
+  margin-top: 4px;
+  background: none;
+  color: #f59e0b;
+  border: 1px dashed #f59e0b;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-add-server:hover {
+  background: #fffbeb;
+}
+
+.btn-save {
+  width: 100%;
+  padding: 10px;
+  background: #f59e0b;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-save:hover {
+  background: #d97706;
+}
+
+/* 상태 메시지 */
 .status {
   margin-top: 12px;
   font-size: 11px;

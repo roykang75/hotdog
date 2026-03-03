@@ -9,28 +9,72 @@
     <h1 class="title">🌭 Hotdog</h1>
     <p class="subtitle">페이지 번역기</p>
 
-    <div class="field">
-      <label for="targetLang">번역 언어</label>
-      <select id="targetLang">
-        <option value="ko">한국어</option>
-        <option value="en">English</option>
-        <option value="ja">日本語</option>
-        <option value="zh-CN">中文 (简体)</option>
-        <option value="zh-TW">中文 (繁體)</option>
-        <option value="es">Español</option>
-        <option value="fr">Français</option>
-        <option value="de">Deutsch</option>
-        <option value="pt">Português</option>
-        <option value="vi">Tiếng Việt</option>
-        <option value="th">ไทย</option>
-        <option value="ru">Русский</option>
-      </select>
+    <!-- View 1: 메인 (번역) -->
+    <div id="viewMain" class="view active">
+      <div class="field">
+        <label for="engine">번역 엔진</label>
+        <select id="engine"></select>
+      </div>
+
+      <div class="field">
+        <label for="targetLang">번역 언어</label>
+        <select id="targetLang">
+          <option value="ko">한국어</option>
+          <option value="en">English</option>
+          <option value="ja">日本語</option>
+          <option value="zh-CN">中文 (简体)</option>
+          <option value="zh-TW">中文 (繁體)</option>
+          <option value="es">Español</option>
+          <option value="fr">Français</option>
+          <option value="de">Deutsch</option>
+          <option value="pt">Português</option>
+          <option value="vi">Tiếng Việt</option>
+          <option value="th">ไทย</option>
+          <option value="ru">Русский</option>
+        </select>
+      </div>
+
+      <button id="translateBtn" class="btn-translate">번역</button>
+      <button id="removeBtn" class="btn-remove">번역 제거</button>
+      <button id="manageBtn" class="btn-manage">⚙ AI 서버 관리</button>
+
+      <p id="status" class="status"></p>
     </div>
 
-    <button id="translateBtn" class="btn-translate">번역</button>
-    <button id="removeBtn" class="btn-remove">번역 제거</button>
+    <!-- View 2: 서버 목록 -->
+    <div id="viewServers" class="view">
+      <div class="view-header">
+        <button class="btn-back" data-target="viewMain">←</button>
+        <span>AI 서버 관리</span>
+      </div>
+      <div id="serverList"></div>
+      <button id="addServerBtn" class="btn-add-server">+ 서버 추가</button>
+    </div>
 
-    <p id="status" class="status"></p>
+    <!-- View 3: 서버 추가/편집 폼 -->
+    <div id="viewServerForm" class="view">
+      <div class="view-header">
+        <button class="btn-back" data-target="viewServers">←</button>
+        <span id="formTitle">서버 추가</span>
+      </div>
+      <div class="field">
+        <label for="serverName">서버 이름</label>
+        <input type="text" id="serverName" placeholder="GPT-4o">
+      </div>
+      <div class="field">
+        <label for="serverEndpoint">Endpoint URL</label>
+        <input type="text" id="serverEndpoint" placeholder="https://api.openai.com/v1">
+      </div>
+      <div class="field">
+        <label for="serverModel">Model</label>
+        <input type="text" id="serverModel" placeholder="gpt-4o-mini">
+      </div>
+      <div class="field">
+        <label for="serverApiKey">API Key</label>
+        <input type="password" id="serverApiKey" placeholder="sk-...">
+      </div>
+      <button id="saveServerBtn" class="btn-save">저장</button>
+    </div>
   </div>
 
   <script src="popup.js"></script>

@@ -5,7 +5,8 @@
   "description": "웹 페이지의 텍스트를 선택한 언어로 번역합니다",
   "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": [
-    "https://translate.googleapis.com/*"
+    "https://translate.googleapis.com/*",
+    "<all_urls>"
   ],
   "action": {
     "default_popup": "popup.html",
