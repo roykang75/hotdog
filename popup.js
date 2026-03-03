@@ -251,7 +251,10 @@ translateBtn.addEventListener('click', async () => {
       if (chrome.runtime.lastError) {
         setStatus('페이지에 접근할 수 없습니다.', 'error');
       } else if (response?.success) {
-        setStatus(`번역 완료! (${response.count}개 블록)`, 'success');
+        const parts = [];
+        if (response.count > 0) parts.push(`${response.count}개 블록`);
+        if (response.subtitleCount > 0) parts.push(`${response.subtitleCount}개 자막`);
+        setStatus(parts.length > 0 ? `번역 완료! (${parts.join(', ')})` : '번역 완료!', 'success');
       } else {
         setStatus(response?.error || '번역에 실패했습니다.', 'error');
       }

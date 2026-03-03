@@ -33,7 +33,7 @@
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.action === 'translate') {
       handleTranslate(message.targetLang, message.engine, message.aiConfig)
-        .then((count) => sendResponse({ success: true, count }))
+        .then((result) => sendResponse({ success: true, count: result.count, subtitleCount: result.subtitleCount }))
         .catch((err) => sendResponse({ success: false, error: err.message }));
       return true;
     }
@@ -190,8 +190,10 @@
   async function handleTranslate(targetLang, engine, aiConfig) {
     removeTranslations();
 
+    // YouTube 자막 번역을 병렬로 시작
+    const subtitlePromise = handleYouTubeSubtitles(targetLang, engine, aiConfig);
+
     const elements = getTranslatableElements();
-    if (elements.length === 0) throw new Error('번역할 텍스트를 찾을 수 없습니다.');
 
     const useAI = engine === 'ai' && aiConfig;
     if (useAI && (!aiConfig.endpoint || !aiConfig.model || !aiConfig.apiKey)) {
@@ -223,10 +225,308 @@
       }
     }
 
-    return translatedCount;
+    const subtitleCount = await subtitlePromise;
+
+    if (elements.length === 0 && subtitleCount === 0) {
+      throw new Error('번역할 텍스트를 찾을 수 없습니다.');
+    }
+
+    return { count: translatedCount, subtitleCount };
   }
 
   function removeTranslations() {
     document.querySelectorAll('.hotdog-translation, .hotdog-loading').forEach((el) => el.remove());
+    stopSubtitleSync();
+  }
+
+  // ===== YouTube 자막 모듈 =====
+
+  let subtitleSyncHandler = null;
+  let subtitleOverlay = null;
+  let ytSubtitleBtn = null;
+  let ytSubtitleActive = false;
+
+  function isYouTubeWatch() {
+    return location.hostname.includes('youtube.com') && location.pathname === '/watch';
+  }
+
+  function getVideoId() {
+    return new URLSearchParams(location.search).get('v');
+  }
+
+  /**
+   * MAIN world의 youtube-main.js에 자막 데이터 요청.
+   * CustomEvent로 통신하여 페이지 컨텍스트의 인증된 fetch를 활용.
+   */
+  function fetchSubtitlesFromMainWorld() {
+    return new Promise((resolve) => {
+      let settled = false;
+
+      const handler = (e) => {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener('hotdog-subs-result', handler);
+        try { resolve(JSON.parse(e.detail)); }
+        catch { resolve([]); }
+      };
+      document.addEventListener('hotdog-subs-result', handler);
+
+      // MAIN world의 youtube-main.js에 요청 전송
+      document.dispatchEvent(new CustomEvent('hotdog-fetch-subs'));
+
+      setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener('hotdog-subs-result', handler);
+        console.warn('[Hotdog] MAIN world 응답 타임아웃');
+        resolve([]);
+      }, 15000);
+    });
+  }
+
+  // 자막 배열을 in-place로 점진적 번역 (오버레이는 이미 표시 중)
+  async function translateSubtitlesInPlace(subtitles, targetLang, engine, aiConfig) {
+    const texts = subtitles.map((s) => s.text);
+    const useAI = engine === 'ai' && aiConfig;
+
+    console.log(`[Hotdog] 자막 번역 시작: ${texts.length}개, 엔진=${engine}, 타겟=${targetLang}`);
+
+    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+      const batch = texts.slice(i, i + BATCH_SIZE);
+      let results;
+      if (useAI) {
+        results = await translateTextWithAI(batch, targetLang, aiConfig);
+      } else {
+        results = await Promise.all(
+          batch.map((t) => translateTextGoogle(t, targetLang).catch((err) => {
+            console.error('[Hotdog] 자막 번역 실패:', err.message, '원문:', t.slice(0, 50));
+            return t;
+          }))
+        );
+      }
+
+      // 번역 결과를 원본 배열에 in-place 반영 → sync 핸들러가 자동 반영
+      for (let j = 0; j < results.length; j++) {
+        const idx = i + j;
+        if (idx < subtitles.length && results[j]) {
+          subtitles[idx].translatedText = results[j];
+          subtitles[idx]._translated = true;
+        }
+      }
+      console.log(`[Hotdog] 자막 번역 진행: ${Math.min(i + BATCH_SIZE, texts.length)}/${texts.length}`);
+    }
+  }
+
+  function createSubtitleOverlay() {
+    stopSubtitleSync();
+
+    const player = document.querySelector('.html5-video-player');
+    if (!player) return null;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'hotdog-subtitle-overlay';
+    player.appendChild(overlay);
+    subtitleOverlay = overlay;
+    return overlay;
+  }
+
+  function startSubtitleSync(subtitles) {
+    const video = document.querySelector('video');
+    if (!video || !subtitleOverlay) return;
+
+    subtitleSyncHandler = () => {
+      const timeMs = video.currentTime * 1000;
+
+      // 이진 탐색으로 현재 시간대 자막 검색
+      let lo = 0, hi = subtitles.length - 1;
+      let found = null;
+      while (lo <= hi) {
+        const mid = (lo + hi) >>> 1;
+        if (subtitles[mid].startMs <= timeMs && timeMs < subtitles[mid].endMs) {
+          found = subtitles[mid];
+          break;
+        } else if (subtitles[mid].startMs > timeMs) {
+          hi = mid - 1;
+        } else {
+          lo = mid + 1;
+        }
+      }
+
+      if (found) {
+        // startMs + 번역 여부로 키 생성 → 번역 완료 시 자동 갱신
+        const key = found.startMs + (found._translated ? ':t' : '');
+        if (subtitleOverlay.dataset.current !== key) {
+          subtitleOverlay.innerHTML = '';
+          const span = document.createElement('span');
+          span.className = 'hotdog-subtitle-text';
+          span.textContent = found.translatedText;
+          subtitleOverlay.appendChild(span);
+          subtitleOverlay.dataset.current = key;
+        }
+      } else if (subtitleOverlay.dataset.current) {
+        subtitleOverlay.innerHTML = '';
+        subtitleOverlay.dataset.current = '';
+      }
+    };
+
+    video.addEventListener('timeupdate', subtitleSyncHandler);
+  }
+
+  function stopSubtitleSync() {
+    if (subtitleSyncHandler) {
+      const video = document.querySelector('video');
+      if (video) video.removeEventListener('timeupdate', subtitleSyncHandler);
+      subtitleSyncHandler = null;
+    }
+    if (subtitleOverlay) {
+      subtitleOverlay.remove();
+      subtitleOverlay = null;
+    }
+  }
+
+  // 인접한 짧은 자막을 병합하여 번역 횟수 줄이기
+  // (자동생성 자막은 1-3단어 세그먼트가 1000개 이상 될 수 있음)
+  function mergeSubtitles(subs, maxGapMs = 2000, maxDurationMs = 10000) {
+    if (subs.length === 0) return subs;
+    const merged = [];
+    let cur = { startMs: subs[0].startMs, endMs: subs[0].endMs, text: subs[0].text };
+
+    for (let i = 1; i < subs.length; i++) {
+      const gap = subs[i].startMs - cur.endMs;
+      const duration = subs[i].endMs - cur.startMs;
+
+      if (gap <= maxGapMs && duration <= maxDurationMs) {
+        cur.text += ' ' + subs[i].text;
+        cur.endMs = subs[i].endMs;
+      } else {
+        merged.push(cur);
+        cur = { startMs: subs[i].startMs, endMs: subs[i].endMs, text: subs[i].text };
+      }
+    }
+    merged.push(cur);
+    return merged;
+  }
+
+  async function handleYouTubeSubtitles(targetLang, engine, aiConfig) {
+    if (!isYouTubeWatch()) return 0;
+
+    try {
+      const rawSubs = await fetchSubtitlesFromMainWorld();
+      console.log(`[Hotdog] MAIN world에서 자막 ${rawSubs.length}개 수신`);
+      if (rawSubs.length === 0) { console.warn('[Hotdog] 자막 데이터 없음'); return 0; }
+
+      const subtitles = mergeSubtitles(rawSubs);
+      console.log(`[Hotdog] 자막 병합: ${rawSubs.length}개 → ${subtitles.length}개`);
+
+      // 원본 텍스트로 초기화 → 즉시 표시
+      for (const s of subtitles) s.translatedText = s.text;
+
+      const overlay = createSubtitleOverlay();
+      if (!overlay) { console.warn('[Hotdog] .html5-video-player를 찾을 수 없음'); return 0; }
+
+      // 오버레이 즉시 시작 (원본 영어 자막 먼저 표시)
+      startSubtitleSync(subtitles);
+      console.log(`[Hotdog] 자막 ${subtitles.length}개 즉시 표시, 백그라운드 번역 시작`);
+
+      // 백그라운드에서 점진적 번역 (in-place 업데이트 → sync 핸들러가 자동 반영)
+      translateSubtitlesInPlace(subtitles, targetLang, engine, aiConfig)
+        .then(() => console.log('[Hotdog] 자막 번역 모두 완료'))
+        .catch((err) => console.warn('[Hotdog] 자막 번역 오류:', err));
+
+      return subtitles.length;
+    } catch (err) {
+      console.warn('[Hotdog] 자막 처리 오류:', err);
+      return 0;
+    }
+  }
+
+  // ===== YouTube 플레이어 번역 버튼 =====
+
+  function initYouTubeButton() {
+    // 기존 버튼 제거
+    if (ytSubtitleBtn) { ytSubtitleBtn.remove(); ytSubtitleBtn = null; }
+    ytSubtitleActive = false;
+
+    if (!isYouTubeWatch()) return;
+
+    const player = document.querySelector('.html5-video-player');
+    if (!player) return;
+
+    const btn = document.createElement('button');
+    btn.className = 'hotdog-yt-btn';
+    btn.textContent = '자막 번역';
+    btn.addEventListener('click', onYtBtnClick);
+    player.appendChild(btn);
+    ytSubtitleBtn = btn;
+  }
+
+  async function onYtBtnClick() {
+    if (ytSubtitleActive) {
+      stopSubtitleSync();
+      ytSubtitleActive = false;
+      ytSubtitleBtn.textContent = '자막 번역';
+      ytSubtitleBtn.classList.remove('hotdog-yt-btn--active');
+      return;
+    }
+
+    // 저장된 설정 읽기
+    const settings = await new Promise((resolve) => {
+      chrome.storage.local.get(['targetLang', 'engine', 'aiServers'], resolve);
+    });
+
+    const targetLang = settings.targetLang || 'ko';
+    let engine = settings.engine || 'google';
+    let aiConfig = null;
+
+    if (engine.startsWith('ai:')) {
+      const serverId = engine.slice(3);
+      const server = (settings.aiServers || []).find((s) => s.id === serverId);
+      if (server) {
+        engine = 'ai';
+        aiConfig = {
+          endpoint: server.endpoint.replace(/\/+$/, ''),
+          model: server.model,
+          apiKey: server.apiKey,
+        };
+      } else {
+        engine = 'google';
+      }
+    }
+
+    ytSubtitleBtn.textContent = '번역 중...';
+    ytSubtitleBtn.disabled = true;
+
+    try {
+      const count = await handleYouTubeSubtitles(targetLang, engine, aiConfig);
+      if (count > 0) {
+        ytSubtitleActive = true;
+        ytSubtitleBtn.textContent = '자막 제거';
+        ytSubtitleBtn.classList.add('hotdog-yt-btn--active');
+      } else {
+        ytSubtitleBtn.textContent = '자막 없음';
+        setTimeout(() => {
+          if (ytSubtitleBtn) ytSubtitleBtn.textContent = '자막 번역';
+        }, 2000);
+      }
+    } catch {
+      ytSubtitleBtn.textContent = '자막 번역';
+    }
+    ytSubtitleBtn.disabled = false;
+  }
+
+  // YouTube SPA 네비게이션 시 자막 오버레이 자동 제거 + 버튼 재생성
+  document.addEventListener('yt-navigate-finish', () => {
+    stopSubtitleSync();
+    // 플레이어 렌더링 대기 후 버튼 재생성
+    setTimeout(initYouTubeButton, 1000);
+  });
+
+  // 최초 로드 시 버튼 생성
+  if (isYouTubeWatch()) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => setTimeout(initYouTubeButton, 1000));
+    } else {
+      setTimeout(initYouTubeButton, 1000);
+    }
   }
 })();
