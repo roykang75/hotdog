@@ -57,6 +57,9 @@
         <button class="btn-back" data-target="viewServers">←</button>
         <span id="formTitle">서버 추가</span>
       </div>
+      <div class="preset-buttons">
+        <button id="presetGithub" class="btn-preset btn-preset-github">GitHub Models (GPT-4o-mini)</button>
+      </div>
       <div class="field">
         <label for="serverName">서버 이름</label>
         <input type="text" id="serverName" placeholder="GPT-4o">
@@ -72,6 +75,9 @@
       <div class="field">
         <label for="serverApiKey">API Key</label>
         <input type="password" id="serverApiKey" placeholder="sk-...">
+        <p id="patGuide" class="pat-guide" style="display:none;">
+          <a href="#" id="patGuideLink">GitHub PAT 생성하기 (models:read 권한 필요) →</a>
+        </p>
       </div>
       <button id="saveServerBtn" class="btn-save">저장</button>
     </div>

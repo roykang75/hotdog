@@ -240,6 +240,45 @@ body {
   background: #fffbeb;
 }
 
+/* 프리셋 버튼 */
+.preset-buttons {
+  margin-bottom: 12px;
+}
+
+.btn-preset {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+
+.btn-preset-github {
+  background: #24292e;
+  color: #fff;
+  border-color: #24292e;
+}
+
+.btn-preset-github:hover {
+  background: #2f363d;
+}
+
+.pat-guide {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.pat-guide a {
+  color: #0969da;
+  text-decoration: none;
+}
+
+.pat-guide a:hover {
+  text-decoration: underline;
+}
+
 .btn-save {
   width: 100%;
   padding: 10px;

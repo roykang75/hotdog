@@ -156,7 +156,29 @@ addServerBtn.addEventListener('click', () => {
   serverEndpointInput.value = '';
   serverModelInput.value = '';
   serverApiKeyInput.value = '';
+  serverApiKeyInput.placeholder = 'sk-...';
+  patGuide.style.display = 'none';
   showView('viewServerForm');
+});
+
+// --- GitHub Models 프리셋 ---
+
+const presetGithub = document.getElementById('presetGithub');
+const patGuide = document.getElementById('patGuide');
+
+presetGithub.addEventListener('click', () => {
+  serverNameInput.value = 'GitHub GPT-4o-mini';
+  serverEndpointInput.value = 'https://models.github.ai/inference';
+  serverModelInput.value = 'gpt-4o-mini';
+  serverApiKeyInput.value = '';
+  serverApiKeyInput.placeholder = 'github_pat_...';
+  patGuide.style.display = 'block';
+  serverApiKeyInput.focus();
+});
+
+document.getElementById('patGuideLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  chrome.tabs.create({ url: 'https://github.com/settings/tokens?type=beta' });
 });
 
 function openEditForm(server) {
