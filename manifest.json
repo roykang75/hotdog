@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Hotdog Translator",
   "version": "1.0.0",
-  "description": "Translate web pages and YouTube subtitles into your language. YouTube subtitle translation reads only caption data (timedtext) to display translated subtitles in real-time.",
+  "description": "Translate web pages and YouTube subtitles into your language with Google Translate or AI models.",
   "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": [
     "https://translate.googleapis.com/*"
