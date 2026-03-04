@@ -2,11 +2,10 @@
   "manifest_version": 3,
   "name": "Hotdog Translator",
   "version": "1.0.0",
-  "description": "웹 페이지의 텍스트를 선택한 언어로 번역합니다",
+  "description": "Translate web pages and YouTube subtitles into your language. YouTube subtitle translation reads only caption data (timedtext) to display translated subtitles in real-time.",
   "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": [
-    "https://translate.googleapis.com/*",
-    "<all_urls>"
+    "https://translate.googleapis.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -18,7 +17,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": ["*://*.youtube.com/*"],
       "css": ["content.css"],
       "js": ["content.js"]
     },

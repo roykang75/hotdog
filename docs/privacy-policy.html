@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hotdog Translator - 개인정보처리방침</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 40px 20px; line-height: 1.7; color: #333; }
+    h1 { font-size: 1.6em; border-bottom: 2px solid #e74c3c; padding-bottom: 8px; }
+    h2 { font-size: 1.2em; margin-top: 32px; color: #222; }
+    ul { padding-left: 20px; }
+    li { margin-bottom: 6px; }
+    .updated { color: #888; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>Hotdog Translator 개인정보처리방침</h1>
+  <p class="updated">최종 수정일: 2026-03-04</p>
+
+  <h2>1. 수집하는 정보</h2>
+  <p>Hotdog Translator는 <strong>개인정보를 수집하거나 저장하지 않습니다.</strong></p>
+  <ul>
+    <li>사용자의 브라우징 기록, 개인 데이터, 쿠키 등을 수집하지 않습니다.</li>
+    <li>번역 대상 텍스트는 번역 API로 전송되지만, 확장 프로그램 자체에 저장되지 않습니다.</li>
+    <li>사용자 설정(번역 엔진, 대상 언어, AI 서버 정보)은 <code>chrome.storage.local</code>에 로컬로만 저장됩니다.</li>
+  </ul>
+
+  <h2>2. 외부 서비스 통신</h2>
+  <p>번역 기능을 위해 다음 외부 서비스와 통신합니다:</p>
+  <ul>
+    <li><strong>Google Translate API</strong> (<code>translate.googleapis.com</code>): 기본 번역 엔진으로 사용됩니다. 번역 대상 텍스트만 전송됩니다.</li>
+    <li><strong>사용자 지정 AI 서버</strong>: 사용자가 직접 등록한 OpenAI 호환 API 엔드포인트로 번역 요청을 보냅니다. 확장 프로그램은 해당 서버의 개인정보처리방침에 관여하지 않습니다.</li>
+  </ul>
+
+  <h2>3. YouTube 자막 기능</h2>
+  <p>YouTube 시청 페이지에서 자막 번역 기능을 제공하기 위해, 확장 프로그램은 YouTube 페이지 내 네트워크 요청 중 <strong>자막 데이터(<code>timedtext</code>) 요청만</strong>을 감지합니다.</p>
+  <ul>
+    <li>이 기능은 <strong>오직 YouTube 도메인(<code>youtube.com</code>)에서만</strong> 동작합니다.</li>
+    <li>자막 텍스트 이외의 네트워크 요청이나 사용자 데이터에는 접근하지 않습니다.</li>
+    <li>감지된 자막 데이터는 번역 후 화면에 표시되며, 별도로 저장되거나 외부로 전송되지 않습니다.</li>
+  </ul>
+
+  <h2>4. 권한 사용 목적</h2>
+  <ul>
+    <li><strong>activeTab</strong>: 사용자가 팝업에서 "번역" 버튼을 클릭한 현재 탭에만 접근합니다.</li>
+    <li><strong>scripting</strong>: 번역 스크립트와 스타일을 현재 탭에 동적으로 주입합니다.</li>
+    <li><strong>storage</strong>: 사용자 설정을 로컬에 저장합니다.</li>
+    <li><strong>translate.googleapis.com</strong>: Google 번역 API 호출에 사용됩니다.</li>
+  </ul>
+
+  <h2>5. 데이터 보안</h2>
+  <p>모든 번역 요청은 HTTPS를 통해 암호화되어 전송됩니다. 확장 프로그램은 서버를 운영하지 않으며, 사용자 데이터를 중앙에서 수집하거나 처리하지 않습니다.</p>
+
+  <h2>6. 변경 사항</h2>
+  <p>본 개인정보처리방침은 필요에 따라 업데이트될 수 있습니다. 변경 시 이 페이지에 최종 수정일과 함께 반영됩니다.</p>
+
+  <h2>7. 문의</h2>
+  <p>개인정보처리방침에 관한 문의는 GitHub 저장소의 Issues를 통해 접수할 수 있습니다.</p>
+</body>
+</html>
