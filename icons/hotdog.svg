@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Bun bottom -->
+  <path d="M18,75 Q18,95 64,95 Q110,95 110,75 L110,68 Q110,78 64,78 Q18,78 18,68 Z" fill="#D4912A"/>
+  <!-- Sausage -->
+  <rect x="16" y="52" rx="18" ry="18" width="96" height="28" fill="#C0392B"/>
+  <!-- Sausage highlight -->
+  <rect x="24" y="56" rx="12" ry="8" width="80" height="10" fill="#D94F3F" opacity="0.6"/>
+  <!-- Bun top -->
+  <path d="M18,58 Q18,25 64,25 Q110,25 110,58 L110,65 Q110,55 64,55 Q18,55 18,65 Z" fill="#F0B840"/>
+  <!-- Bun top highlight -->
+  <path d="M28,55 Q28,32 64,32 Q100,32 100,55" fill="none" stroke="#F5D070" stroke-width="4"/>
+  <!-- Mustard zigzag -->
+  <polyline points="24,66 34,56 44,66 54,56 64,66 74,56 84,66 94,56 104,66" fill="none" stroke="#F1C40F" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Sesame seeds -->
+  <ellipse cx="44" cy="40" rx="4" ry="2.5" fill="#FFF8DC" transform="rotate(-20,44,40)"/>
+  <ellipse cx="68" cy="35" rx="4" ry="2.5" fill="#FFF8DC" transform="rotate(10,68,35)"/>
+  <ellipse cx="86" cy="42" rx="4" ry="2.5" fill="#FFF8DC" transform="rotate(-5,86,42)"/>
+</svg>

@@ -84,6 +84,8 @@
     'h2.hP',                    // 스레드 뷰 이메일 제목
     '.ha h2',                   // 스레드 뷰 이메일 제목 (대체)
     '.ii.gt',                   // 이메일 본문 컨테이너
+    'span.bog',                 // 메일 목록 제목
+    '.y2',                      // 메일 목록 미리보기 스니펫
   ];
 
   const GMAIL_BLOCK_TAGS = new Set([...BLOCK_TAGS, 'DIV']);
