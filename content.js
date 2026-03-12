@@ -79,6 +79,85 @@
     }
   }
 
+  // Gmail 전용: 이메일 제목, 본문 수집
+  const GMAIL_SELECTORS = [
+    'h2.hP',                    // 스레드 뷰 이메일 제목
+    '.ha h2',                   // 스레드 뷰 이메일 제목 (대체)
+    '.ii.gt',                   // 이메일 본문 컨테이너
+  ];
+
+  const GMAIL_BLOCK_TAGS = new Set([...BLOCK_TAGS, 'DIV']);
+
+  function isGmail() {
+    return location.hostname === 'mail.google.com';
+  }
+
+  function collectGmailElements(elements, seen) {
+    for (const selector of GMAIL_SELECTORS) {
+      for (const el of document.querySelectorAll(selector)) {
+        if (seen.has(el)) continue;
+        if (el.querySelector('.hotdog-translation')) continue;
+        const text = el.textContent.trim();
+        if (text.length < 2) continue;
+
+        // 이메일 본문 컨테이너는 내부 블록 요소를 개별 수집
+        if (el.matches('.ii.gt')) {
+          collectGmailBodyElements(el, elements, seen);
+        } else if (el.matches('h2.hP') || el.matches('.ha h2')) {
+          // Gmail 제목은 overflow:hidden으로 자식이 잘릴 수 있으므로
+          // 래퍼 div를 형제로 삽입하고 래퍼를 번역 대상으로 등록
+          if (el.nextElementSibling && el.nextElementSibling.classList.contains('hotdog-gmail-subject-wrap')) continue;
+          const wrap = document.createElement('div');
+          wrap.className = 'hotdog-gmail-subject-wrap';
+          const hiddenText = document.createElement('span');
+          hiddenText.className = 'hotdog-gmail-subject-original';
+          hiddenText.textContent = text;
+          wrap.appendChild(hiddenText);
+          el.parentNode.insertBefore(wrap, el.nextSibling);
+          seen.add(wrap);
+          elements.push(wrap);
+        } else {
+          seen.add(el);
+          elements.push(el);
+        }
+      }
+    }
+  }
+
+  function collectGmailBodyElements(root, elements, seen) {
+    const walker = document.createTreeWalker(
+      root,
+      NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode(node) {
+          if (SKIP_TAGS.has(node.tagName)) return NodeFilter.FILTER_REJECT;
+          if (node.classList.contains('hotdog-translation')) return NodeFilter.FILTER_REJECT;
+          if (!GMAIL_BLOCK_TAGS.has(node.tagName)) return NodeFilter.FILTER_SKIP;
+
+          const text = node.textContent.trim();
+          if (text.length < 2) return NodeFilter.FILTER_SKIP;
+
+          const hasBlockChild = Array.from(node.children).some(
+            (child) => GMAIL_BLOCK_TAGS.has(child.tagName)
+          );
+          if (hasBlockChild) return NodeFilter.FILTER_SKIP;
+
+          if (node.querySelector('.hotdog-translation')) return NodeFilter.FILTER_SKIP;
+
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      }
+    );
+
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!seen.has(node)) {
+        seen.add(node);
+        elements.push(node);
+      }
+    }
+  }
+
   // YouTube 전용: 제목, 설명, 댓글, 답글 등 커스텀 요소 수집
   const YT_SELECTORS = [
     '#title h1 yt-formatted-string',              // 영상 제목
@@ -109,21 +188,31 @@
       return elements;
     }
 
+    // Gmail 페이지: 전용 셀렉터로 수집
+    if (isGmail()) {
+      collectGmailElements(elements, seen);
+      return elements;
+    }
+
     // 1단계: 콘텐츠 영역 내 블록 요소 수집
     const contentAreas = document.querySelectorAll(CONTENT_AREA_SELECTOR);
     for (const area of contentAreas) {
       collectBlockElements(area, elements, seen);
     }
 
-    // 2단계: 콘텐츠 영역 밖의 독립 단락 (예: GitHub About 설명)
+    // 2단계: 콘텐츠 영역 밖의 독립 단락 및 제목 (예: GitHub About 설명, Reddit 게시글 제목)
     const mainEl = document.querySelector('main, [role="main"]') || document.body;
-    for (const p of mainEl.querySelectorAll('p')) {
-      if (seen.has(p)) continue;
-      if (p.closest(CONTENT_AREA_SELECTOR)) continue;
-      if (p.closest('nav, header, footer, button, [role="navigation"], [role="banner"]')) continue;
-      if (p.textContent.trim().length < 20) continue;
-      seen.add(p);
-      elements.push(p);
+    const HEADING_TAGS = new Set(['H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
+    for (const el of mainEl.querySelectorAll('p, h1, h2, h3, h4, h5, h6')) {
+      if (seen.has(el)) continue;
+      if (el.closest(CONTENT_AREA_SELECTOR)) continue;
+      if (el.closest('nav, footer, button, [role="navigation"]')) continue;
+      const text = el.textContent.trim();
+      const minLen = HEADING_TAGS.has(el.tagName) ? 2 : 20;
+      if (text.length < minLen) continue;
+      if (el.querySelector('.hotdog-translation')) continue;
+      seen.add(el);
+      elements.push(el);
     }
 
     // 3단계: 위에서 아무것도 없으면 main 전체에서 탐색
@@ -256,7 +345,7 @@
   }
 
   function removeTranslations() {
-    document.querySelectorAll('.hotdog-translation, .hotdog-loading').forEach((el) => el.remove());
+    document.querySelectorAll('.hotdog-translation, .hotdog-loading, .hotdog-gmail-subject-wrap').forEach((el) => el.remove());
     stopSubtitleSync();
   }
 

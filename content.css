@@ -38,6 +38,17 @@
   100% { transform: translateX(250%); }
 }
 
+/* Gmail 제목 번역 래퍼 */
+.hotdog-gmail-subject-wrap {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.hotdog-gmail-subject-original {
+  display: none;
+}
+
 /* YouTube 자막 오버레이 */
 .hotdog-subtitle-overlay {
   position: absolute;
