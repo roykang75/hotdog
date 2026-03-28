@@ -176,6 +176,28 @@ presetGithub.addEventListener('click', () => {
   serverApiKeyInput.focus();
 });
 
+// --- OpenAI 프리셋 ---
+
+document.getElementById('presetOpenAI4o').addEventListener('click', () => {
+  serverNameInput.value = 'OpenAI GPT-4o-mini';
+  serverEndpointInput.value = 'https://api.openai.com/v1';
+  serverModelInput.value = 'gpt-4o-mini';
+  serverApiKeyInput.value = '';
+  serverApiKeyInput.placeholder = 'sk-...';
+  patGuide.style.display = 'none';
+  serverApiKeyInput.focus();
+});
+
+document.getElementById('presetOpenAI5').addEventListener('click', () => {
+  serverNameInput.value = 'OpenAI GPT-5-mini';
+  serverEndpointInput.value = 'https://api.openai.com/v1';
+  serverModelInput.value = 'gpt-5-mini';
+  serverApiKeyInput.value = '';
+  serverApiKeyInput.placeholder = 'sk-...';
+  patGuide.style.display = 'none';
+  serverApiKeyInput.focus();
+});
+
 document.getElementById('patGuideLink').addEventListener('click', (e) => {
   e.preventDefault();
   chrome.tabs.create({ url: 'https://github.com/settings/tokens?type=beta' });

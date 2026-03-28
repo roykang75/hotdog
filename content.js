@@ -259,7 +259,6 @@
           },
           { role: 'user', content: numbered },
         ],
-        temperature: 0.1,
       }),
     });
 
@@ -640,5 +639,113 @@
     } else {
       setTimeout(initYouTubeButton, 1000);
     }
+  }
+
+  // ===== 플로팅 번역 버튼 (FAB) =====
+
+  let fabTranslated = false;
+
+  function getStoredSettings() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['targetLang', 'engine', 'aiServers'], resolve);
+    });
+  }
+
+  function parseEngine(settings) {
+    let engine = settings.engine || 'google';
+    let aiConfig = null;
+
+    if (engine.startsWith('ai:')) {
+      const serverId = engine.slice(3);
+      const server = (settings.aiServers || []).find((s) => s.id === serverId);
+      if (server) {
+        engine = 'ai';
+        aiConfig = {
+          endpoint: server.endpoint.replace(/\/+$/, ''),
+          model: server.model,
+          apiKey: server.apiKey,
+        };
+      } else {
+        engine = 'google';
+      }
+    }
+
+    return { engine, aiConfig };
+  }
+
+  function initFab() {
+    if (document.querySelector('.hotdog-fab')) return;
+
+    const fab = document.createElement('button');
+    fab.className = 'hotdog-fab';
+    fab.innerHTML = '🌭';
+    fab.title = '번역';
+
+    // 드래그 지원
+    let isDragging = false;
+    let dragStartY = 0;
+    let fabStartY = 0;
+
+    fab.addEventListener('mousedown', (e) => {
+      isDragging = false;
+      dragStartY = e.clientY;
+      fabStartY = fab.getBoundingClientRect().top;
+
+      const onMove = (e2) => {
+        if (Math.abs(e2.clientY - dragStartY) > 5) isDragging = true;
+        if (isDragging) {
+          const newTop = Math.max(10, Math.min(window.innerHeight - 50, fabStartY + (e2.clientY - dragStartY)));
+          fab.style.top = newTop + 'px';
+          fab.style.bottom = 'auto';
+        }
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    fab.addEventListener('click', async () => {
+      if (isDragging) {
+        isDragging = false;
+        return;
+      }
+
+      if (fabTranslated) {
+        removeTranslations();
+        fabTranslated = false;
+        fab.classList.remove('hotdog-fab--active');
+        fab.title = '번역';
+        return;
+      }
+
+      fab.classList.add('hotdog-fab--loading');
+      fab.title = '번역 중...';
+
+      try {
+        const settings = await getStoredSettings();
+        const targetLang = settings.targetLang || 'ko';
+        const { engine, aiConfig } = parseEngine(settings);
+
+        await handleTranslate(targetLang, engine, aiConfig);
+        fabTranslated = true;
+        fab.classList.add('hotdog-fab--active');
+        fab.title = '번역 제거';
+      } catch (err) {
+        fab.title = err.message || '번역 실패';
+        setTimeout(() => { fab.title = '번역'; }, 3000);
+      }
+      fab.classList.remove('hotdog-fab--loading');
+    });
+
+    document.body.appendChild(fab);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initFab);
+  } else {
+    initFab();
   }
 })();

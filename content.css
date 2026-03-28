@@ -49,6 +49,49 @@
   display: none;
 }
 
+/* 플로팅 번역 버튼 (FAB) */
+.hotdog-fab {
+  position: fixed;
+  bottom: 30px;
+  right: 24px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+  font-size: 22px;
+  cursor: pointer;
+  z-index: 2147483647;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  opacity: 0.7;
+}
+
+.hotdog-fab:hover {
+  opacity: 1;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  transform: scale(1.1);
+}
+
+.hotdog-fab--active {
+  background: #fee2e2;
+  opacity: 1;
+}
+
+.hotdog-fab--loading {
+  opacity: 1;
+  animation: hotdog-fab-glow 1.2s ease-in-out infinite;
+}
+
+@keyframes hotdog-fab-glow {
+  0%, 100% { box-shadow: 0 0 4px rgba(245, 158, 11, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.7), 0 0 40px rgba(245, 158, 11, 0.3); }
+}
+
 /* YouTube 자막 오버레이 */
 .hotdog-subtitle-overlay {
   position: absolute;
