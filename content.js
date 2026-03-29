@@ -677,7 +677,7 @@
 
     const btn = document.createElement('button');
     btn.className = 'hotdog-yt-btn';
-    btn.textContent = '자막 번역';
+    btn.textContent = '🌭 자막 번역';
     btn.addEventListener('click', onYtBtnClick);
     player.appendChild(btn);
     ytSubtitleBtn = btn;
@@ -687,7 +687,7 @@
     if (ytSubtitleActive) {
       stopSubtitleSync();
       ytSubtitleActive = false;
-      ytSubtitleBtn.textContent = '자막 번역';
+      ytSubtitleBtn.textContent = '🌭 자막 번역';
       ytSubtitleBtn.classList.remove('hotdog-yt-btn--active');
       return;
     }
@@ -716,23 +716,23 @@
       }
     }
 
-    ytSubtitleBtn.textContent = '번역 중...';
+    ytSubtitleBtn.textContent = '🌭 번역 중...';
     ytSubtitleBtn.disabled = true;
 
     try {
       const count = await handleYouTubeSubtitles(targetLang, engine, aiConfig);
       if (count > 0) {
         ytSubtitleActive = true;
-        ytSubtitleBtn.textContent = '자막 제거';
+        ytSubtitleBtn.textContent = '🌭 자막 제거';
         ytSubtitleBtn.classList.add('hotdog-yt-btn--active');
       } else {
-        ytSubtitleBtn.textContent = '자막 없음';
+        ytSubtitleBtn.textContent = '🌭 자막 없음';
         setTimeout(() => {
-          if (ytSubtitleBtn) ytSubtitleBtn.textContent = '자막 번역';
+          if (ytSubtitleBtn) ytSubtitleBtn.textContent = '🌭 자막 번역';
         }, 2000);
       }
     } catch {
-      ytSubtitleBtn.textContent = '자막 번역';
+      ytSubtitleBtn.textContent = '🌭 자막 번역';
     }
     ytSubtitleBtn.disabled = false;
   }
