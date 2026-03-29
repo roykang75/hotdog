@@ -1,8 +1,10 @@
 (() => {
   if (window.__hotdogLoaded) return;
   window.__hotdogLoaded = true;
+  console.log('[Hotdog] v1.0.2 로드됨, SUBTITLE_BATCH=50');
 
   const BATCH_SIZE = 20;
+  const SUBTITLE_BATCH_SIZE = 50;
   const CACHE_MAX = 5000;
 
   // 번역 캐시 (메모리 + chrome.storage)
@@ -476,11 +478,21 @@
 
     console.log(`[Hotdog] 자막 번역 시작: ${texts.length}개, 엔진=${engine}, 타겟=${targetLang}`);
 
-    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-      const batch = texts.slice(i, i + BATCH_SIZE);
+    const SUB_BATCH = 30;
+    for (let i = 0; i < texts.length; i += SUB_BATCH) {
+      const batch = texts.slice(i, i + SUB_BATCH);
       let results;
       if (useAI) {
-        results = await translateTextWithAI(batch, targetLang, aiConfig);
+        // 실패 시 배치를 절반으로 줄여 재시도
+        try {
+          results = await translateTextWithAI(batch, targetLang, aiConfig);
+        } catch (err) {
+          console.warn('[Hotdog] 자막 배치 실패, 절반으로 재시도:', err.message);
+          const mid = Math.ceil(batch.length / 2);
+          const r1 = await translateTextWithAI(batch.slice(0, mid), targetLang, aiConfig).catch(() => batch.slice(0, mid));
+          const r2 = await translateTextWithAI(batch.slice(mid), targetLang, aiConfig).catch(() => batch.slice(mid));
+          results = [...r1, ...r2];
+        }
       } else {
         results = await Promise.all(
           batch.map((t) => translateTextGoogle(t, targetLang).catch((err) => {
@@ -498,7 +510,7 @@
           subtitles[idx]._translated = true;
         }
       }
-      console.log(`[Hotdog] 자막 번역 진행: ${Math.min(i + BATCH_SIZE, texts.length)}/${texts.length}`);
+      console.log(`[Hotdog] 자막 번역 진행: ${Math.min(i + SUB_BATCH, texts.length)}/${texts.length}`);
     }
   }
 
@@ -592,11 +604,37 @@
     return merged;
   }
 
+  // 자막 사전 로딩 캐시
+  let prefetchedSubs = null;
+  let prefetchVideoId = null;
+
+  async function prefetchSubtitles() {
+    if (!isYouTubeWatch()) return;
+    const vid = getVideoId();
+    if (!vid || vid === prefetchVideoId) return;
+    prefetchVideoId = vid;
+    prefetchedSubs = null;
+
+    try {
+      const rawSubs = await fetchSubtitlesFromMainWorld();
+      if (rawSubs.length > 0) {
+        prefetchedSubs = rawSubs;
+        console.log(`[Hotdog] 자막 사전 로딩 완료: ${rawSubs.length}개`);
+      }
+    } catch {}
+  }
+
   async function handleYouTubeSubtitles(targetLang, engine, aiConfig) {
     if (!isYouTubeWatch()) return 0;
 
     try {
-      const rawSubs = await fetchSubtitlesFromMainWorld();
+      let rawSubs;
+      if (prefetchedSubs && prefetchVideoId === getVideoId()) {
+        rawSubs = prefetchedSubs;
+        console.log(`[Hotdog] 사전 로딩된 자막 사용: ${rawSubs.length}개`);
+      } else {
+        rawSubs = await fetchSubtitlesFromMainWorld();
+      }
       console.log(`[Hotdog] MAIN world에서 자막 ${rawSubs.length}개 수신`);
       if (rawSubs.length === 0) { console.warn('[Hotdog] 자막 데이터 없음'); return 0; }
 
@@ -699,19 +737,29 @@
     ytSubtitleBtn.disabled = false;
   }
 
-  // YouTube SPA 네비게이션 시 자막 오버레이 자동 제거 + 버튼 재생성
+  // YouTube SPA 네비게이션 시 자막 오버레이 자동 제거 + 버튼 재생성 + 사전 로딩
   document.addEventListener('yt-navigate-finish', () => {
     stopSubtitleSync();
-    // 플레이어 렌더링 대기 후 버튼 재생성
-    setTimeout(initYouTubeButton, 1000);
+    prefetchedSubs = null;
+    prefetchVideoId = null;
+    setTimeout(() => {
+      initYouTubeButton();
+      prefetchSubtitles();
+    }, 1000);
   });
 
-  // 최초 로드 시 버튼 생성
+  // 최초 로드 시 버튼 생성 + 사전 로딩
   if (isYouTubeWatch()) {
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => setTimeout(initYouTubeButton, 1000));
+      document.addEventListener('DOMContentLoaded', () => setTimeout(() => {
+        initYouTubeButton();
+        prefetchSubtitles();
+      }, 1000));
     } else {
-      setTimeout(initYouTubeButton, 1000);
+      setTimeout(() => {
+        initYouTubeButton();
+        prefetchSubtitles();
+      }, 1000);
     }
   }
 

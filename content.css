@@ -154,7 +154,7 @@
   padding: 6px 16px;
   background: rgba(0, 0, 0, 0.75);
   color: #fff;
-  font-size: 26px;
+  font-size: clamp(16px, 3.5vw, 42px);
   line-height: 1.4;
   border-radius: 4px;
   max-width: 80%;
