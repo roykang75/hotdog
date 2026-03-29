@@ -3,6 +3,37 @@
   window.__hotdogLoaded = true;
 
   const BATCH_SIZE = 20;
+  const CACHE_MAX = 5000;
+
+  // 번역 캐시 (메모리 + chrome.storage)
+  const transCache = new Map();
+  let cacheLoaded = false;
+
+  async function loadCache() {
+    if (cacheLoaded) return;
+    try {
+      const data = await new Promise((r) => chrome.storage.local.get('hotdogCache', r));
+      if (data.hotdogCache) {
+        for (const [k, v] of Object.entries(data.hotdogCache)) transCache.set(k, v);
+      }
+    } catch {}
+    cacheLoaded = true;
+  }
+
+  function saveCache() {
+    // 캐시 크기 제한: 오래된 항목 삭제
+    if (transCache.size > CACHE_MAX) {
+      const keys = [...transCache.keys()];
+      for (let i = 0; i < keys.length - CACHE_MAX; i++) transCache.delete(keys[i]);
+    }
+    try {
+      chrome.storage.local.set({ hotdogCache: Object.fromEntries(transCache) });
+    } catch {}
+  }
+
+  function cacheKey(text, targetLang, engine) {
+    return `${targetLang}:${engine}:${text.slice(0, 200)}`;
+  }
 
   // 번역 대상 블록 태그
   const BLOCK_TAGS = new Set([
@@ -226,8 +257,12 @@
   }
 
   async function translateTextGoogle(text, targetLang) {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
-    const res = await fetch(url);
+    const url = 'https://translate.googleapis.com/translate_a/single';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`,
+    });
     if (!res.ok) throw new Error(`Translation API error: ${res.status}`);
     const data = await res.json();
     return data[0].map((seg) => seg[0]).join('');
@@ -264,7 +299,9 @@
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`AI API error: ${res.status} ${body.slice(0, 200)}`);
+      console.error(`[Hotdog] AI API error: ${res.status}`, body);
+      console.error(`[Hotdog] 요청 모델: ${aiConfig.model}, endpoint: ${aiConfig.endpoint}`);
+      throw new Error(`AI API error: ${res.status} ${body.slice(0, 500)}`);
     }
 
     const data = await res.json();
@@ -299,14 +336,23 @@
     const translationEl = document.createElement('span');
     translationEl.className = 'hotdog-translation';
     translationEl.textContent = translated;
-    el.replaceChild(translationEl, loader);
+    loader.remove();
+    if (el.tagName === 'LI') {
+      // LI 내부 grid/flex 레이아웃을 무시하고 전체 너비로 표시
+      translationEl.style.cssText = 'display:block!important;grid-column:1/-1!important;width:100%!important;';
+      el.appendChild(translationEl);
+    } else {
+      el.after(translationEl);
+    }
     return true;
   }
 
   async function handleTranslate(targetLang, engine, aiConfig) {
     removeTranslations();
+    await loadCache();
 
     const elements = getTranslatableElements();
+    const engineKey = engine === 'ai' && aiConfig ? `ai:${aiConfig.model}` : engine;
 
     const useAI = engine === 'ai' && aiConfig;
     if (useAI && (!aiConfig.endpoint || !aiConfig.model || !aiConfig.apiKey)) {
@@ -314,29 +360,57 @@
     }
 
     let translatedCount = 0;
+    let cacheHits = 0;
 
     for (let i = 0; i < elements.length; i += BATCH_SIZE) {
       const batch = elements.slice(i, i + BATCH_SIZE);
       const texts = batch.map((el) => el.textContent.trim());
       const loaders = batch.map((el) => addLoading(el));
 
+      // 캐시 히트 먼저 처리
+      const uncachedIndices = [];
+      for (let idx = 0; idx < batch.length; idx++) {
+        const key = cacheKey(texts[idx], targetLang, engineKey);
+        const cached = transCache.get(key);
+        if (cached) {
+          if (replaceWithTranslation(loaders[idx], batch[idx], cached, texts[idx])) translatedCount++;
+          cacheHits++;
+        } else {
+          uncachedIndices.push(idx);
+        }
+      }
+
+      if (uncachedIndices.length === 0) continue;
+
       if (useAI) {
-        const results = await translateTextWithAI(texts, targetLang, aiConfig);
-        batch.forEach((el, idx) => {
-          if (replaceWithTranslation(loaders[idx], el, results[idx], texts[idx])) translatedCount++;
+        const uncachedTexts = uncachedIndices.map((idx) => texts[idx]);
+        const results = await translateTextWithAI(uncachedTexts, targetLang, aiConfig);
+        uncachedIndices.forEach((idx, ri) => {
+          const translated = results[ri];
+          if (translated) transCache.set(cacheKey(texts[idx], targetLang, engineKey), translated);
+          if (replaceWithTranslation(loaders[idx], batch[idx], translated, texts[idx])) translatedCount++;
         });
       } else {
-        const promises = batch.map(async (el, idx) => {
-          try {
-            const translated = await translateTextGoogle(texts[idx], targetLang);
-            if (replaceWithTranslation(loaders[idx], el, translated.trim(), texts[idx])) translatedCount++;
-          } catch {
-            loaders[idx].remove();
-          }
-        });
-        await Promise.all(promises);
+        // Google Translate: 동시 요청 5개로 제한하여 rate limit 회피
+        for (let j = 0; j < uncachedIndices.length; j += 5) {
+          const chunk = uncachedIndices.slice(j, j + 5);
+          const promises = chunk.map(async (idx) => {
+            try {
+              const translated = await translateTextGoogle(texts[idx], targetLang);
+              const trimmed = translated.trim();
+              if (trimmed) transCache.set(cacheKey(texts[idx], targetLang, engineKey), trimmed);
+              if (replaceWithTranslation(loaders[idx], batch[idx], trimmed, texts[idx])) translatedCount++;
+            } catch {
+              loaders[idx].remove();
+            }
+          });
+          await Promise.all(promises);
+        }
       }
     }
+
+    if (cacheHits > 0) console.log(`[Hotdog] 캐시 히트: ${cacheHits}건`);
+    saveCache();
 
     if (elements.length === 0) {
       throw new Error('번역할 텍스트를 찾을 수 없습니다.');
@@ -346,7 +420,7 @@
   }
 
   function removeTranslations() {
-    document.querySelectorAll('.hotdog-translation, .hotdog-loading, .hotdog-gmail-subject-wrap').forEach((el) => el.remove());
+    document.querySelectorAll('.hotdog-translation, .hotdog-translation-wrap, .hotdog-loading, .hotdog-gmail-subject-wrap').forEach((el) => el.remove());
     stopSubtitleSync();
   }
 

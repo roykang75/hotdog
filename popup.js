@@ -33,6 +33,12 @@ manageBtn.addEventListener('click', () => {
   showView('viewServers');
 });
 
+document.getElementById('clearCacheBtn').addEventListener('click', () => {
+  chrome.storage.local.remove('hotdogCache', () => {
+    setStatus('번역 캐시가 삭제되었습니다.', 'success');
+  });
+});
+
 // --- 마이그레이션 + 초기 로드 ---
 
 chrome.storage.local.get(['targetLang', 'engine', 'aiEndpoint', 'aiModel', 'aiApiKey', 'aiServers'], (result) => {
