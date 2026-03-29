@@ -13,6 +13,7 @@ zip -r "$OUTPUT" \
   popup.html \
   popup.js \
   popup.css \
+  background.js \
   content.js \
   content.css \
   youtube-main.js \

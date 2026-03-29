@@ -113,49 +113,29 @@
   z-index: 100;
 }
 
-/* YouTube 플레이어 번역 버튼 */
+/* YouTube 컨트롤 바 번역 버튼 */
 .hotdog-yt-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 100;
-  padding: 6px 16px;
   border: none;
-  border-radius: 20px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 500;
+  background: none;
   cursor: pointer;
-  pointer-events: auto;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   transition: all 0.2s;
-  opacity: 0;
-}
-
-.html5-video-player:hover .hotdog-yt-btn,
-.hotdog-yt-btn--active {
-  opacity: 1;
+  padding: 0;
+  width: 48px;
+  height: 100%;
 }
 
 .hotdog-yt-btn:hover {
-  background: rgba(245, 158, 11, 0.85);
-  transform: scale(1.05);
+  transform: scale(1.25);
 }
 
 .hotdog-yt-btn:disabled {
-  background: rgba(100, 100, 100, 0.6);
+  opacity: 0.4;
   cursor: wait;
   transform: none;
 }
 
 .hotdog-yt-btn--active {
-  background: rgba(239, 68, 68, 0.7);
-}
-
-.hotdog-yt-btn--active:hover {
-  background: rgba(220, 38, 38, 0.85);
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.9));
 }
 
 .hotdog-subtitle-text {

@@ -259,15 +259,30 @@
   }
 
   async function translateTextGoogle(text, targetLang) {
-    const url = 'https://translate.googleapis.com/translate_a/single';
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`,
+    // 긴 텍스트는 분할 번역 (URL 길이 제한 ~2000자)
+    if (encodeURIComponent(text).length > 1800) {
+      const sentences = text.match(/[^.!?。！？]+[.!?。！？]+|[^.!?。！？]+$/g) || [text];
+      const mid = Math.ceil(sentences.length / 2);
+      const part1 = sentences.slice(0, mid).join('');
+      const part2 = sentences.slice(mid).join('');
+      const [r1, r2] = await Promise.all([
+        translateTextGoogle(part1, targetLang),
+        translateTextGoogle(part2, targetLang),
+      ]);
+      return r1 + r2;
+    }
+    // Background service worker를 통해 CORS 우회
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ action: 'googleTranslate', text, targetLang }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else if (response?.success) {
+          resolve(response.translated);
+        } else {
+          reject(new Error(response?.error || 'Translation failed'));
+        }
+      });
     });
-    if (!res.ok) throw new Error(`Translation API error: ${res.status}`);
-    const data = await res.json();
-    return data[0].map((seg) => seg[0]).join('');
   }
 
   const LANG_NAMES = {
@@ -665,6 +680,10 @@
 
   // ===== YouTube 플레이어 번역 버튼 =====
 
+  const YT_ICON_DEFAULT = '<svg viewBox="0 0 36 36" width="36" height="36"><text x="14" y="18" text-anchor="middle" font-size="18">🌭</text></svg>';
+  const YT_ICON_ACTIVE = '<svg viewBox="0 0 36 36" width="36" height="36"><text x="14" y="18" text-anchor="middle" font-size="18">🌭</text><circle cx="26" cy="8" r="4" fill="#ef4444"/></svg>';
+  const YT_ICON_LOADING = '<svg viewBox="0 0 36 36" width="36" height="36"><text x="14" y="18" text-anchor="middle" font-size="18">🌭</text><g transform-origin="14 6"><animateTransform attributeName="transform" type="rotate" from="0 14 6" to="360 14 6" dur="1s" repeatCount="indefinite"/><text x="14" y="9" text-anchor="middle" font-size="8">♨️</text></g></svg>';
+
   function initYouTubeButton() {
     // 기존 버튼 제거
     if (ytSubtitleBtn) { ytSubtitleBtn.remove(); ytSubtitleBtn = null; }
@@ -672,14 +691,15 @@
 
     if (!isYouTubeWatch()) return;
 
-    const player = document.querySelector('.html5-video-player');
-    if (!player) return;
+    const rightControls = document.querySelector('.ytp-right-controls');
+    if (!rightControls) return;
 
     const btn = document.createElement('button');
-    btn.className = 'hotdog-yt-btn';
-    btn.textContent = '🌭 자막 번역';
+    btn.className = 'hotdog-yt-btn ytp-button';
+    btn.innerHTML = YT_ICON_DEFAULT;
+    btn.title = '자막 번역';
     btn.addEventListener('click', onYtBtnClick);
-    player.appendChild(btn);
+    rightControls.insertBefore(btn, rightControls.firstChild);
     ytSubtitleBtn = btn;
   }
 
@@ -687,7 +707,8 @@
     if (ytSubtitleActive) {
       stopSubtitleSync();
       ytSubtitleActive = false;
-      ytSubtitleBtn.textContent = '🌭 자막 번역';
+      ytSubtitleBtn.innerHTML = YT_ICON_DEFAULT;
+      ytSubtitleBtn.title = '자막 번역';
       ytSubtitleBtn.classList.remove('hotdog-yt-btn--active');
       return;
     }
@@ -716,23 +737,27 @@
       }
     }
 
-    ytSubtitleBtn.textContent = '🌭 번역 중...';
+    ytSubtitleBtn.innerHTML = YT_ICON_LOADING;
+    ytSubtitleBtn.title = '번역 중...';
     ytSubtitleBtn.disabled = true;
 
     try {
       const count = await handleYouTubeSubtitles(targetLang, engine, aiConfig);
       if (count > 0) {
         ytSubtitleActive = true;
-        ytSubtitleBtn.textContent = '🌭 자막 제거';
+        ytSubtitleBtn.innerHTML = YT_ICON_ACTIVE;
+        ytSubtitleBtn.title = '자막 제거';
         ytSubtitleBtn.classList.add('hotdog-yt-btn--active');
       } else {
-        ytSubtitleBtn.textContent = '🌭 자막 없음';
+        ytSubtitleBtn.innerHTML = YT_ICON_DEFAULT;
+        ytSubtitleBtn.title = '자막 없음';
         setTimeout(() => {
-          if (ytSubtitleBtn) ytSubtitleBtn.textContent = '🌭 자막 번역';
+          if (ytSubtitleBtn) { ytSubtitleBtn.innerHTML = YT_ICON_DEFAULT; ytSubtitleBtn.title = '자막 번역'; }
         }, 2000);
       }
     } catch {
-      ytSubtitleBtn.textContent = '🌭 자막 번역';
+      ytSubtitleBtn.innerHTML = YT_ICON_DEFAULT;
+      ytSubtitleBtn.title = '자막 번역';
     }
     ytSubtitleBtn.disabled = false;
   }
