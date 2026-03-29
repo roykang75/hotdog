@@ -29,7 +29,6 @@
         const text = await clone.text();
         if (text && text.length > 0) {
           capturedSubtitleData = text;
-          console.log('[Hotdog-Main] fetch 인터셉트: 자막 데이터 캡처됨, 길이:', text.length);
         }
       }
     } catch { /* 인터셉트 실패는 무시 */ }
@@ -48,7 +47,6 @@
       this.addEventListener('load', function () {
         if (this.responseText && this.responseText.length > 0) {
           capturedSubtitleData = this.responseText;
-          console.log('[Hotdog-Main] XHR 인터셉트: 자막 데이터 캡처됨, 길이:', this.responseText.length);
         }
       });
     }
@@ -63,7 +61,6 @@
 
     try {
       let text = capturedSubtitleData;
-      console.log('[Hotdog-Main] 캡처된 데이터:', text ? `${text.length}바이트` : '없음');
 
       // 캡처된 데이터가 없으면 플레이어 API로 자막 로드 시도
       if (!text) {
@@ -75,46 +72,34 @@
             window.__hotdogPlayerResponse,
             window.ytInitialPlayerResponse,
           ];
-          console.log('[Hotdog-Main] PR 소스 존재 여부:', prSources.map((s, i) => `${i}:${!!s}`).join(', '));
           const pr = prSources.find(s => s?.captions?.playerCaptionsTracklistRenderer?.captionTracks?.length > 0) || prSources.find(Boolean);
           if (pr) {
             try {
               const tracks = pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-              console.log('[Hotdog-Main] captionTracks:', tracks?.length || 0);
 
               if (tracks && tracks.length > 0) {
                 const track = tracks.find((t) => t.kind !== 'asr') || tracks[0];
-                console.log('[Hotdog-Main] 선택된 트랙:', JSON.stringify({ lang: track.languageCode, kind: track.kind, vssId: track.vssId }));
 
                 // ASR(자동생성) 자막은 직접 fetch 시 빈 응답 → 건너뛰고 트랙 활성화로 진행
                 if (track.kind !== 'asr') {
                   const url = track.baseUrl + (track.baseUrl.includes('?') ? '&' : '?') + 'fmt=json3';
-                  console.log('[Hotdog-Main] 캡션 URL 직접 fetch:', url.slice(0, 120));
                   try {
                     const resp = await originalFetch(url);
                     if (resp.ok) {
                       const respText = await resp.text();
                       if (respText && respText.length > 0) {
                         text = respText;
-                        console.log('[Hotdog-Main] 직접 fetch 성공:', respText.length, '바이트');
                       }
                     }
-                  } catch (e2) {
-                    console.warn('[Hotdog-Main] 직접 fetch 실패:', e2.message);
-                  }
-                } else {
-                  console.log('[Hotdog-Main] ASR 트랙 → 직접 fetch 건너뜀, 트랙 활성화로 진행');
+                  } catch { /* 직접 fetch 실패는 무시 */ }
                 }
               }
-            } catch (e) {
-              console.warn('[Hotdog-Main] playerResponse 방법 실패:', e.message, e);
-            }
+            } catch { /* playerResponse 방법 실패는 무시 */ }
           }
 
           // 방법 2: captions 모듈 로드 + 트랙 활성화로 자막 fetch 트리거
           if (!text && player.loadModule) {
             player.loadModule('captions');
-            console.log('[Hotdog-Main] captions 모듈 로드 요청');
 
             // 방법 1에서 얻은 트랙 정보 활용
             const knownTracks = pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
@@ -125,14 +110,12 @@
               // 인터셉트로 캡처되었는지 확인
               if (capturedSubtitleData) {
                 text = capturedSubtitleData;
-                console.log('[Hotdog-Main] 인터셉트 캡처됨:', text.length, '바이트');
                 break;
               }
 
               // 트랙 활성화 시도 (알려진 트랙 또는 tracklist에서)
               const tracklist = player.getOption?.('captions', 'tracklist');
               const trackToSet = tracklist?.[0] || (knownTracks?.[0] ? { languageCode: knownTracks[0].languageCode } : null);
-              console.log(`[Hotdog-Main] 트랙 활성화 시도 ${attempt + 1}/8:`, trackToSet?.languageCode || 'none');
 
               if (trackToSet) {
                 try {
@@ -153,7 +136,6 @@
       }
 
       if (!text || !text.trim()) {
-        console.warn('[Hotdog-Main] 자막 데이터 없음');
         done([]);
         return;
       }
@@ -189,10 +171,8 @@
         }
       }
 
-      console.log('[Hotdog-Main] 자막 파싱 완료:', subs.length, '개');
       done(subs);
-    } catch (err) {
-      console.warn('[Hotdog-Main] 오류:', err);
+    } catch {
       done([]);
     }
   });

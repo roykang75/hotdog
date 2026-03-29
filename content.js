@@ -34,7 +34,7 @@
   }
 
   function cacheKey(text, targetLang, engine) {
-    return `${targetLang}:${engine}:${text.slice(0, 200)}`;
+    return `${targetLang}:${engine}:${text.length}:${text.slice(0, 200)}`;
   }
 
   // 번역 대상 블록 태그
@@ -73,6 +73,28 @@
     if (message.action === 'remove') {
       removeTranslations();
       sendResponse({ success: true });
+    }
+    if (message.action === 'summarize') {
+      const cacheUrl = location.href;
+      if (summaryCache.has(cacheUrl)) {
+        showSummaryCard(summaryCache.get(cacheUrl));
+        sendResponse({ success: true, cached: true });
+        return;
+      }
+      // 팝업에서 AI 호출 후 결과를 showSummaryCard로 표시
+      sendResponse({ success: true, cached: false });
+    }
+    if (message.action === 'showSummaryCard') {
+      summaryCache.set(location.href, message.text);
+      showSummaryCard(message.text);
+      sendResponse({ success: true });
+    }
+    if (message.action === 'getSummaryText') {
+      const elements = getTranslatableElements();
+      const MAX_CHARS = 12000;
+      let text = elements.map(el => el.textContent.trim()).filter(Boolean).join('\n\n');
+      if (text.length > MAX_CHARS) text = text.slice(0, MAX_CHARS) + '\n\n...[내용 축약됨]';
+      sendResponse({ success: true, text });
     }
   });
 
@@ -316,8 +338,6 @@
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      console.error(`[Hotdog] AI API error: ${res.status}`, body);
-      console.error(`[Hotdog] 요청 모델: ${aiConfig.model}, endpoint: ${aiConfig.endpoint}`);
       throw new Error(`AI API error: ${res.status} ${body.slice(0, 500)}`);
     }
 
@@ -426,7 +446,6 @@
       }
     }
 
-    if (cacheHits > 0) console.log(`[Hotdog] 캐시 히트: ${cacheHits}건`);
     saveCache();
 
     if (elements.length === 0) {
@@ -480,7 +499,6 @@
         if (settled) return;
         settled = true;
         document.removeEventListener('hotdog-subs-result', handler);
-        console.warn('[Hotdog] MAIN world 응답 타임아웃');
         resolve([]);
       }, 15000);
     });
@@ -491,8 +509,6 @@
     const texts = subtitles.map((s) => s.text);
     const useAI = engine === 'ai' && aiConfig;
 
-    console.log(`[Hotdog] 자막 번역 시작: ${texts.length}개, 엔진=${engine}, 타겟=${targetLang}`);
-
     const SUB_BATCH = 30;
     for (let i = 0; i < texts.length; i += SUB_BATCH) {
       const batch = texts.slice(i, i + SUB_BATCH);
@@ -502,30 +518,25 @@
         try {
           results = await translateTextWithAI(batch, targetLang, aiConfig);
         } catch (err) {
-          console.warn('[Hotdog] 자막 배치 실패, 절반으로 재시도:', err.message);
           const mid = Math.ceil(batch.length / 2);
-          const r1 = await translateTextWithAI(batch.slice(0, mid), targetLang, aiConfig).catch(() => batch.slice(0, mid));
-          const r2 = await translateTextWithAI(batch.slice(mid), targetLang, aiConfig).catch(() => batch.slice(mid));
+          const r1 = await translateTextWithAI(batch.slice(0, mid), targetLang, aiConfig).catch(() => new Array(mid).fill(''));
+          const r2 = await translateTextWithAI(batch.slice(mid), targetLang, aiConfig).catch(() => new Array(batch.length - mid).fill(''));
           results = [...r1, ...r2];
         }
       } else {
         results = await Promise.all(
-          batch.map((t) => translateTextGoogle(t, targetLang).catch((err) => {
-            console.error('[Hotdog] 자막 번역 실패:', err.message, '원문:', t.slice(0, 50));
-            return t;
-          }))
+          batch.map((t) => translateTextGoogle(t, targetLang).catch(() => t))
         );
       }
 
       // 번역 결과를 원본 배열에 in-place 반영 → sync 핸들러가 자동 반영
       for (let j = 0; j < results.length; j++) {
         const idx = i + j;
-        if (idx < subtitles.length && results[j]) {
+        if (idx < subtitles.length && results[j] && results[j] !== subtitles[idx].text) {
           subtitles[idx].translatedText = results[j];
           subtitles[idx]._translated = true;
         }
       }
-      console.log(`[Hotdog] 자막 번역 진행: ${Math.min(i + SUB_BATCH, texts.length)}/${texts.length}`);
     }
   }
 
@@ -634,7 +645,6 @@
       const rawSubs = await fetchSubtitlesFromMainWorld();
       if (rawSubs.length > 0) {
         prefetchedSubs = rawSubs;
-        console.log(`[Hotdog] 자막 사전 로딩 완료: ${rawSubs.length}개`);
       }
     } catch {}
   }
@@ -646,34 +656,28 @@
       let rawSubs;
       if (prefetchedSubs && prefetchVideoId === getVideoId()) {
         rawSubs = prefetchedSubs;
-        console.log(`[Hotdog] 사전 로딩된 자막 사용: ${rawSubs.length}개`);
       } else {
         rawSubs = await fetchSubtitlesFromMainWorld();
       }
-      console.log(`[Hotdog] MAIN world에서 자막 ${rawSubs.length}개 수신`);
-      if (rawSubs.length === 0) { console.warn('[Hotdog] 자막 데이터 없음'); return 0; }
+      if (rawSubs.length === 0) { return 0; }
 
       const subtitles = mergeSubtitles(rawSubs);
-      console.log(`[Hotdog] 자막 병합: ${rawSubs.length}개 → ${subtitles.length}개`);
 
       // 원본 텍스트로 초기화 → 즉시 표시
       for (const s of subtitles) s.translatedText = s.text;
 
       const overlay = createSubtitleOverlay();
-      if (!overlay) { console.warn('[Hotdog] .html5-video-player를 찾을 수 없음'); return 0; }
+      if (!overlay) { return 0; }
 
       // 오버레이 즉시 시작 (원본 영어 자막 먼저 표시)
       startSubtitleSync(subtitles);
-      console.log(`[Hotdog] 자막 ${subtitles.length}개 즉시 표시, 백그라운드 번역 시작`);
 
       // 백그라운드에서 점진적 번역 (in-place 업데이트 → sync 핸들러가 자동 반영)
       translateSubtitlesInPlace(subtitles, targetLang, engine, aiConfig)
-        .then(() => console.log('[Hotdog] 자막 번역 모두 완료'))
-        .catch((err) => console.warn('[Hotdog] 자막 번역 오류:', err));
+        .catch(() => {});
 
       return subtitles.length;
-    } catch (err) {
-      console.warn('[Hotdog] 자막 처리 오류:', err);
+    } catch {
       return 0;
     }
   }
@@ -791,6 +795,7 @@
   // ===== 플로팅 번역 버튼 (FAB) =====
 
   let fabTranslated = false;
+  const summaryCache = new Map();
 
   function getStoredSettings() {
     return new Promise((resolve) => {
@@ -821,7 +826,7 @@
   }
 
   function initFab() {
-    if (document.querySelector('.hotdog-fab')) return;
+    if (document.querySelector('.hotdog-fab-container')) return;
 
     const fab = document.createElement('button');
     fab.className = 'hotdog-fab';
@@ -836,19 +841,21 @@
     fab.addEventListener('mousedown', (e) => {
       isDragging = false;
       dragStartY = e.clientY;
-      fabStartY = fab.getBoundingClientRect().top;
+      fabStartY = fab.closest('.hotdog-fab-container').getBoundingClientRect().bottom - fab.offsetHeight;
 
+      const container = fab.closest('.hotdog-fab-container');
       const onMove = (e2) => {
         if (Math.abs(e2.clientY - dragStartY) > 5) isDragging = true;
         if (isDragging) {
-          const newTop = Math.max(10, Math.min(window.innerHeight - 50, fabStartY + (e2.clientY - dragStartY)));
-          fab.style.top = newTop + 'px';
-          fab.style.bottom = 'auto';
+          container.classList.add('hotdog-fab-dragging');
+          const newBottom = window.innerHeight - Math.max(50, Math.min(window.innerHeight - 10, fabStartY + fab.offsetHeight + (e2.clientY - dragStartY)));
+          container.style.bottom = newBottom + 'px';
         }
       };
       const onUp = () => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        container.classList.remove('hotdog-fab-dragging');
       };
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
@@ -887,7 +894,170 @@
       fab.classList.remove('hotdog-fab--loading');
     });
 
-    document.body.appendChild(fab);
+    // summaryCache는 모듈 스코프에서 선언됨
+
+    // 요약 버튼
+    const fabSummary = document.createElement('button');
+    fabSummary.className = 'hotdog-fab hotdog-fab-summary';
+    fabSummary.innerHTML = '📋';
+    fabSummary.title = '페이지 요약';
+    fabSummary.addEventListener('click', async () => {
+      const card = document.querySelector('.hotdog-summary-card');
+      if (card) { card.remove(); return; }
+
+      // 캐시 히트 시 즉시 표시
+      const cacheUrl = location.href;
+      if (summaryCache.has(cacheUrl)) {
+        showSummaryCard(summaryCache.get(cacheUrl));
+        return;
+      }
+
+      const settings = await getStoredSettings();
+      const { engine, aiConfig } = parseEngine(settings);
+
+      if (engine !== 'ai' || !aiConfig) {
+        showSummaryCard('AI 서버를 설정해야 요약 기능을 사용할 수 있습니다.');
+        return;
+      }
+
+      fabSummary.classList.add('hotdog-fab--loading');
+      fabSummary.title = '요약 중...';
+
+      try {
+        const elements = getTranslatableElements();
+        const MAX_CHARS = 12000;
+        let text = elements.map(el => el.textContent.trim()).filter(Boolean).join('\n\n');
+        if (text.length > MAX_CHARS) text = text.slice(0, MAX_CHARS) + '\n\n...[내용 축약됨]';
+
+        if (text.trim().length < 10) throw new Error('요약할 텍스트가 부족합니다.');
+
+        const targetLang = settings.targetLang || 'ko';
+        const langName = LANG_NAMES[targetLang] || targetLang;
+
+        const res = await fetch(`${aiConfig.endpoint}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.apiKey}` },
+          body: JSON.stringify({
+            model: aiConfig.model,
+            messages: [
+              { role: 'system', content: `You are a summarizer. Summarize the following page content concisely in ${langName}. Format your response in markdown: use "- " for bullet points, "**bold**" for emphasis, and "## " for section headers if needed. Be specific, not generic.` },
+              { role: 'user', content: text },
+            ],
+          }),
+        });
+
+        if (!res.ok) throw new Error(`AI API error: ${res.status}`);
+        const data = await res.json();
+        const summary = data.choices?.[0]?.message?.content || '요약 결과 없음';
+        summaryCache.set(cacheUrl, summary);
+        showSummaryCard(summary);
+      } catch (err) {
+        showSummaryCard('요약 실패: ' + (err.message || '알 수 없는 오류'));
+      }
+      fabSummary.classList.remove('hotdog-fab--loading');
+      fabSummary.title = '페이지 요약';
+    });
+
+    const fabContainer = document.createElement('div');
+    fabContainer.className = 'hotdog-fab-container';
+    fabContainer.appendChild(fabSummary);
+    fabContainer.appendChild(fab);
+    document.body.appendChild(fabContainer);
+  }
+
+  function renderMarkdown(md) {
+    const lines = md.split('\n');
+    let html = '';
+    let listDepth = 0;
+
+    const inline = (s) => s
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/`(.+?)`/g, '<code>$1</code>');
+
+    const closeListsTo = (depth) => {
+      while (listDepth > depth) { html += '</ul>'; listDepth--; }
+    };
+
+    for (const raw of lines) {
+      const listMatch = raw.match(/^(\s*)[-*]\s+(.+)/);
+      if (listMatch) {
+        const spaces = listMatch[1].length;
+        const indent = spaces === 0 ? 1 : Math.floor((spaces - 1) / 2) + 2;
+        while (listDepth < indent) { html += '<ul>'; listDepth++; }
+        while (listDepth > indent) { html += '</ul>'; listDepth--; }
+        html += `<li>${inline(listMatch[2])}</li>`;
+        continue;
+      }
+
+      closeListsTo(0);
+
+      if (/^\s*$/.test(raw)) { html += '<br>'; continue; }
+      let m;
+      if ((m = raw.match(/^###\s+(.+)/))) { html += `<h4>${inline(m[1])}</h4>`; continue; }
+      if ((m = raw.match(/^##\s+(.+)/))) { html += `<h3>${inline(m[1])}</h3>`; continue; }
+      if ((m = raw.match(/^#\s+(.+)/))) { html += `<h2>${inline(m[1])}</h2>`; continue; }
+      html += `<p>${inline(raw)}</p>`;
+    }
+    closeListsTo(0);
+    return html;
+  }
+
+  function showSummaryCard(text) {
+    let card = document.querySelector('.hotdog-summary-card');
+    if (card) card.remove();
+
+    card = document.createElement('div');
+    card.className = 'hotdog-summary-card';
+    card.innerHTML = `
+      <div class="hotdog-summary-header">
+        <span>📋 페이지 요약</span>
+        <div class="hotdog-summary-actions">
+          <button class="hotdog-summary-copy" data-tooltip="복사">⧉</button>
+          <button class="hotdog-summary-close" data-tooltip="닫기">&times;</button>
+        </div>
+      </div>
+      <div class="hotdog-summary-body"></div>
+    `;
+    card.querySelector('.hotdog-summary-body').innerHTML = renderMarkdown(text);
+    card.querySelector('.hotdog-summary-close').addEventListener('click', () => card.remove());
+
+    // 드래그 이동
+    const header = card.querySelector('.hotdog-summary-header');
+    let dragX, dragY, cardX, cardY;
+    header.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button')) return;
+      dragX = e.clientX; dragY = e.clientY;
+      const rect = card.getBoundingClientRect();
+      cardX = rect.left; cardY = rect.top;
+      const onMove = (e2) => {
+        card.style.left = (cardX + e2.clientX - dragX) + 'px';
+        card.style.top = (cardY + e2.clientY - dragY) + 'px';
+        card.style.right = 'auto';
+        card.style.bottom = 'auto';
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    card.querySelector('.hotdog-summary-copy').addEventListener('click', async function () {
+      const btn = this;
+      const rect = btn.getBoundingClientRect();
+      await navigator.clipboard.writeText(text);
+      const tooltip = document.createElement('span');
+      tooltip.className = 'hotdog-copy-tooltip';
+      tooltip.textContent = 'Copied!';
+      tooltip.style.top = (rect.bottom + 6) + 'px';
+      tooltip.style.left = (rect.left + rect.width / 2) + 'px';
+      tooltip.style.transform = 'translateX(-50%)';
+      document.body.appendChild(tooltip);
+      setTimeout(() => tooltip.remove(), 1200);
+    });
+    document.body.appendChild(card);
   }
 
   if (document.readyState === 'loading') {

@@ -14,6 +14,15 @@ const serverEndpointInput = document.getElementById('serverEndpoint');
 const serverModelInput = document.getElementById('serverModel');
 const serverApiKeyInput = document.getElementById('serverApiKey');
 
+const summarizeBtn = document.getElementById('summarizeBtn');
+
+const LANG_NAMES = {
+  ko: 'Korean', en: 'English', ja: 'Japanese',
+  'zh-CN': 'Simplified Chinese', 'zh-TW': 'Traditional Chinese',
+  es: 'Spanish', fr: 'French', de: 'German',
+  pt: 'Portuguese', vi: 'Vietnamese', th: 'Thai', ru: 'Russian',
+};
+
 let aiServers = [];
 let editingServerId = null;
 
@@ -38,6 +47,91 @@ document.getElementById('clearCacheBtn').addEventListener('click', () => {
     setStatus('번역 캐시가 삭제되었습니다.', 'success');
   });
 });
+
+// --- 요약 기능 ---
+
+function updateSummarizeBtn() {
+  summarizeBtn.disabled = !engineSelect.value.startsWith('ai:');
+}
+
+engineSelect.addEventListener('change', updateSummarizeBtn);
+
+summarizeBtn.addEventListener('click', async () => {
+  const engine = engineSelect.value;
+  if (!engine.startsWith('ai:')) return;
+
+  const serverId = engine.slice(3);
+  const server = aiServers.find(s => s.id === serverId);
+  if (!server) return;
+
+  summarizeBtn.disabled = true;
+  summarizeBtn.textContent = '요약 중...';
+  setStatus('페이지를 요약하고 있습니다...', '');
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['content.css'] }).catch(() => {});
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }).catch(() => {});
+
+    // content.js의 캐시 확인
+    const cacheResult = await new Promise((resolve) => {
+      chrome.tabs.sendMessage(tab.id, { action: 'summarize' }, (res) => resolve(res));
+    });
+
+    if (cacheResult?.cached) {
+      setStatus('요약 완료 (캐시)', 'success');
+      summarizeBtn.textContent = '요약';
+      updateSummarizeBtn();
+      return;
+    }
+
+    // 캐시 없으면 AI 호출
+    const pageText = await new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(tab.id, { action: 'getSummaryText' }, (res) => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else if (res?.success) resolve(res.text);
+        else reject(new Error('텍스트 수집 실패'));
+      });
+    });
+
+    if (!pageText || pageText.trim().length < 10) throw new Error('요약할 텍스트가 부족합니다.');
+
+    const targetLang = targetLangSelect.value;
+    const langName = LANG_NAMES[targetLang] || targetLang;
+    const aiConfig = { endpoint: server.endpoint.replace(/\/+$/, ''), model: server.model, apiKey: server.apiKey };
+
+    const res = await fetch(`${aiConfig.endpoint}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.apiKey}` },
+      body: JSON.stringify({
+        model: aiConfig.model,
+        messages: [
+          { role: 'system', content: `You are a summarizer. Summarize the following page content concisely in ${langName}. Format your response in markdown: use "- " for bullet points, "**bold**" for emphasis, and "## " for section headers if needed. Be specific, not generic.` },
+          { role: 'user', content: pageText },
+        ],
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`AI API error: ${res.status} ${body.slice(0, 200)}`);
+    }
+
+    const data = await res.json();
+    const summary = data.choices?.[0]?.message?.content || '요약 결과 없음';
+
+    // content.js의 슬라이드 카드로 표시 + 캐시 저장
+    chrome.tabs.sendMessage(tab.id, { action: 'showSummaryCard', text: summary });
+    setStatus('요약 완료', 'success');
+  } catch (err) {
+    setStatus(err.message, 'error');
+  } finally {
+    summarizeBtn.textContent = '요약';
+    updateSummarizeBtn();
+  }
+});
+
 
 // --- 마이그레이션 + 초기 로드 ---
 
@@ -76,6 +170,7 @@ chrome.storage.local.get(['targetLang', 'engine', 'aiEndpoint', 'aiModel', 'aiAp
   } else {
     engineSelect.value = engine;
   }
+  updateSummarizeBtn();
 });
 
 // --- 엔진 드롭다운 ---
@@ -100,6 +195,7 @@ function renderEngineOptions() {
   if (current && [...engineSelect.options].some((o) => o.value === current)) {
     engineSelect.value = current;
   }
+  updateSummarizeBtn();
 }
 
 engineSelect.addEventListener('change', () => {

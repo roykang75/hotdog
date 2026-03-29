@@ -5,6 +5,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
+        if (!data?.[0] || !Array.isArray(data[0])) {
+          sendResponse({ success: false, error: 'Unexpected API response' });
+          return;
+        }
         const translated = data[0].map((seg) => seg[0]).join('');
         sendResponse({ success: true, translated });
       })

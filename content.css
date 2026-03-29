@@ -113,6 +113,201 @@
   z-index: 100;
 }
 
+/* FAB 컨테이너 */
+.hotdog-fab-container {
+  position: fixed;
+  bottom: 30px;
+  right: 24px;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 6px;
+}
+
+.hotdog-fab-container .hotdog-fab {
+  position: static;
+}
+
+/* 요약 FAB */
+.hotdog-fab-summary {
+  font-size: 18px;
+  width: 38px;
+  height: 38px;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.5) translateY(10px);
+  transition: all 0.2s;
+}
+
+.hotdog-fab-container:hover .hotdog-fab-summary,
+.hotdog-fab-summary.hotdog-fab--loading {
+  opacity: 0.7;
+  pointer-events: auto;
+  transform: scale(1) translateY(0);
+}
+
+.hotdog-fab-container:hover .hotdog-fab-summary:hover {
+  opacity: 1;
+  transform: scale(1.1) translateY(0);
+}
+
+.hotdog-fab-dragging .hotdog-fab-summary {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* 요약 슬라이드 카드 */
+.hotdog-summary-card {
+  position: fixed;
+  bottom: 30px;
+  right: 80px;
+  width: 320px;
+  max-height: 400px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  animation: hotdog-slide-in 0.25s ease;
+  overflow: hidden;
+}
+
+@keyframes hotdog-slide-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.hotdog-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #fffbeb;
+  border-bottom: 1px solid #f0e6d0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #92400e;
+  flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+}
+
+.hotdog-summary-header:active {
+  cursor: grabbing;
+}
+
+.hotdog-summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hotdog-summary-copy,
+.hotdog-summary-close {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: #a89880;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.hotdog-summary-copy:hover,
+.hotdog-summary-close:hover {
+  color: #1a1a1a;
+  background: rgba(0,0,0,0.05);
+}
+
+.hotdog-summary-copy,
+.hotdog-summary-close {
+  position: relative;
+}
+
+[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #9ca3af;
+  color: #fff;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2147483647;
+}
+
+.hotdog-copy-tooltip {
+  position: fixed;
+  z-index: 2147483647;
+  background: #333;
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: hotdog-tooltip-fade 1.2s ease forwards;
+}
+
+@keyframes hotdog-tooltip-fade {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.hotdog-summary-body {
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #1a1a1a;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.hotdog-summary-body h2,
+.hotdog-summary-body h3,
+.hotdog-summary-body h4 {
+  margin: 8px 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.hotdog-summary-body ul {
+  margin: 4px 0;
+  padding-left: 20px;
+  list-style-type: disc !important;
+}
+
+.hotdog-summary-body li {
+  margin: 3px 0;
+  display: list-item !important;
+}
+
+.hotdog-summary-body p {
+  margin: 4px 0;
+}
+
+.hotdog-summary-body strong {
+  font-weight: 700;
+}
+
+.hotdog-summary-body code {
+  background: #f3f0eb;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
 /* YouTube 컨트롤 바 번역 버튼 */
 .hotdog-yt-btn {
   border: none;

@@ -4,24 +4,28 @@
 
 - [x] Gmail 번역 지원 (스레드 뷰 제목 + 본문 + 목록 뷰)
 - [x] 플로팅 번역 버튼 (FAB) — 모든 페이지에 🌭 아이콘 표시
+- [x] 요약 FAB (📋) — FAB hover 시 나타남, 페이지 요약 슬라이드 카드
+- [x] 페이지 요약 기능 (AI 엔진 사용, 마크다운 렌더링, 캐싱)
+- [x] 요약 카드 드래그 이동, 복사 버튼 + Copied 툴팁
+- [x] 팝업/FAB 요약 통합 (동일한 슬라이드 카드 + 캐시 공유)
 - [x] OpenAI GPT-4o-mini / GPT-5-mini 프리셋 추가
 - [x] 핫도그 모양 아이콘 적용 (SVG 기반 16/48/128px)
 - [x] 번역 캐싱 (chrome.storage.local, 최대 5000건)
 - [x] 캐시 삭제 버튼 팝업에 추가
-- [x] Google Translate GET→POST→Background SW 프록시 (CORS 우회)
-- [x] 긴 텍스트 자동 분할 번역 (URL 길이 제한 대응)
+- [x] Google Translate Background SW 프록시 (CORS 우회) + 긴 텍스트 분할
 - [x] YouTube 자막 CC 없이도 로드 (ytInitialPlayerResponse 폴백)
 - [x] YouTube 자막 사전 로딩 (페이지 진입 시 자동 fetch)
 - [x] YouTube 자막 배치 크기 최적화 (30개) + AI 실패 시 절반 재시도
 - [x] YouTube ASR 트랙 직접 fetch 건너뛰기 (빈 응답 방지)
-- [x] YouTube 컨트롤 바에 🌭 아이콘 버튼 배치
+- [x] YouTube 컨트롤 바에 🌭 아이콘 버튼 (상태별 SVG 아이콘)
 - [x] YouTube 자막 폰트 크기 반응형 (clamp)
 - [x] youtube-main.js IIFE 래핑 (SPA 변수 재선언 에러 해결)
 - [x] arxiv References 등 grid/flex 레이아웃 번역 표시 개선
-- [x] 팝업 UI 리디자인 (Plus Jakarta Sans, 앰버 테마)
+- [x] 팝업 UI 리디자인 (Plus Jakarta Sans, 앰버 라이트 테마)
 - [x] 모든 버튼 pill 스타일 통일
 - [x] temperature 파라미터 제거 (GPT-5-mini 호환)
 - [x] AI API 에러 로깅 강화
+- [x] 코드 리뷰 이슈 수정 (XSS 방지, 캐시 키 충돌, API 응답 가드, 자막 번역 실패 처리)
 
 ## Chrome 웹스토어 등록
 
