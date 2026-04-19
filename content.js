@@ -865,6 +865,12 @@
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
         container.classList.remove('hotdog-fab-dragging');
+        // 드래그로 이동한 경우 위치를 뷰포트 높이 대비 비율로 저장
+        if (isDragging && container.style.bottom) {
+          const bottomPx = parseFloat(container.style.bottom);
+          const ratio = bottomPx / window.innerHeight;
+          try { chrome.storage.local.set({ fabBottomRatio: ratio }); } catch {}
+        }
       };
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
@@ -972,6 +978,16 @@
     fabContainer.appendChild(fabSummary);
     fabContainer.appendChild(fab);
     document.body.appendChild(fabContainer);
+
+    // 저장된 위치 복원 (뷰포트 높이 대비 비율로 저장되어 있음)
+    try {
+      chrome.storage.local.get('fabBottomRatio', (data) => {
+        if (typeof data.fabBottomRatio !== 'number') return;
+        const bottomPx = data.fabBottomRatio * window.innerHeight;
+        const clamped = Math.max(10, Math.min(window.innerHeight - 50, bottomPx));
+        fabContainer.style.bottom = clamped + 'px';
+      });
+    } catch {}
   }
 
   function renderMarkdown(md) {
