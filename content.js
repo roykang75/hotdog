@@ -41,7 +41,8 @@
   const BLOCK_TAGS = new Set([
     'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
     'LI', 'BLOCKQUOTE', 'FIGCAPTION',
-    'TD', 'TH', 'DT', 'DD', 'SUMMARY', 'CAPTION'
+    'TD', 'TH', 'DT', 'DD', 'SUMMARY', 'CAPTION',
+    'CENTER'
   ]);
 
   // 내부 탐색 제외 태그
@@ -60,8 +61,16 @@
     '.article-body',
     '.blog-post',
     '.prose',
-    '.content-body'
+    '.content-body',
+    'main',
+    '#primary',
+    '#content',
+    '#main-content',
+    '.main-content'
   ].join(',');
+
+  // hasBlockChild 검사용 - 중첩된 블록 요소 감지 (UL/OL 래퍼 내부 LI 등)
+  const BLOCK_DESCENDANT_SELECTOR = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,figcaption,td,th,dt,dd,summary,caption';
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.action === 'translate') {
@@ -111,11 +120,9 @@
           const text = node.textContent.trim();
           if (text.length < 2) return NodeFilter.FILTER_SKIP;
 
-          // 자식에 블록 태그가 있으면 건너뛰고 자식을 번역
-          const hasBlockChild = Array.from(node.children).some(
-            (child) => BLOCK_TAGS.has(child.tagName)
-          );
-          if (hasBlockChild) return NodeFilter.FILTER_SKIP;
+          // 후손에 블록 요소가 있으면 건너뛰고 후손을 번역
+          // (UL/OL 래퍼 안에 LI가 중첩된 경우 등 래퍼 태그를 건너뛰어야 함)
+          if (node.querySelector(BLOCK_DESCENDANT_SELECTOR)) return NodeFilter.FILTER_SKIP;
 
           // 이미 번역된 요소 건너뛰기
           if (node.querySelector('.hotdog-translation')) return NodeFilter.FILTER_SKIP;
@@ -272,8 +279,10 @@
       elements.push(el);
     }
 
-    // 3단계: 위에서 아무것도 없으면 main 전체에서 탐색
-    if (elements.length === 0) {
+    // 3단계: 수집된 요소가 부족하면 main 전체에서 블록 요소 추가 탐색
+    // (본문이 대부분 LI 구조이거나 래퍼 클래스가 없는 페이지 대응)
+    const totalChars = elements.reduce((n, el) => n + el.textContent.trim().length, 0);
+    if (elements.length < 5 || totalChars < 500) {
       collectBlockElements(mainEl, elements, seen);
     }
 
