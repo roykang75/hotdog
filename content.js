@@ -842,22 +842,29 @@
     fab.innerHTML = '🌭';
     fab.title = '번역';
 
-    // 드래그 지원
+    // 드래그 지원 (가로/세로 자유 이동)
     let isDragging = false;
-    let dragStartY = 0;
-    let fabStartY = 0;
 
     fab.addEventListener('mousedown', (e) => {
       isDragging = false;
-      dragStartY = e.clientY;
-      fabStartY = fab.closest('.hotdog-fab-container').getBoundingClientRect().bottom - fab.offsetHeight;
-
       const container = fab.closest('.hotdog-fab-container');
+      const rect = container.getBoundingClientRect();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startRight = window.innerWidth - rect.right;
+      const startBottom = window.innerHeight - rect.bottom;
+      const w = rect.width;
+      const h = rect.height;
+
       const onMove = (e2) => {
-        if (Math.abs(e2.clientY - dragStartY) > 5) isDragging = true;
+        const dx = e2.clientX - startX;
+        const dy = e2.clientY - startY;
+        if (Math.hypot(dx, dy) > 5) isDragging = true;
         if (isDragging) {
           container.classList.add('hotdog-fab-dragging');
-          const newBottom = window.innerHeight - Math.max(50, Math.min(window.innerHeight - 10, fabStartY + fab.offsetHeight + (e2.clientY - dragStartY)));
+          const newRight = Math.max(10, Math.min(window.innerWidth - w - 10, startRight - dx));
+          const newBottom = Math.max(10, Math.min(window.innerHeight - h - 10, startBottom - dy));
+          container.style.right = newRight + 'px';
           container.style.bottom = newBottom + 'px';
         }
       };
@@ -865,11 +872,16 @@
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
         container.classList.remove('hotdog-fab-dragging');
-        // 드래그로 이동한 경우 위치를 뷰포트 높이 대비 비율로 저장
-        if (isDragging && container.style.bottom) {
-          const bottomPx = parseFloat(container.style.bottom);
-          const ratio = bottomPx / window.innerHeight;
-          try { chrome.storage.local.set({ fabBottomRatio: ratio }); } catch {}
+        // 드래그로 이동한 경우 위치를 뷰포트 크기 대비 비율로 저장
+        if (isDragging) {
+          const bottomPx = parseFloat(container.style.bottom) || 0;
+          const rightPx = parseFloat(container.style.right) || 0;
+          try {
+            chrome.storage.local.set({
+              fabBottomRatio: bottomPx / window.innerHeight,
+              fabRightRatio: rightPx / window.innerWidth,
+            });
+          } catch {}
         }
       };
       document.addEventListener('mousemove', onMove);
@@ -979,13 +991,17 @@
     fabContainer.appendChild(fab);
     document.body.appendChild(fabContainer);
 
-    // 저장된 위치 복원 (뷰포트 높이 대비 비율로 저장되어 있음)
+    // 저장된 위치 복원 (뷰포트 크기 대비 비율로 저장되어 있음)
     try {
-      chrome.storage.local.get('fabBottomRatio', (data) => {
-        if (typeof data.fabBottomRatio !== 'number') return;
-        const bottomPx = data.fabBottomRatio * window.innerHeight;
-        const clamped = Math.max(10, Math.min(window.innerHeight - 50, bottomPx));
-        fabContainer.style.bottom = clamped + 'px';
+      chrome.storage.local.get(['fabBottomRatio', 'fabRightRatio'], (data) => {
+        if (typeof data.fabBottomRatio === 'number') {
+          const bottomPx = data.fabBottomRatio * window.innerHeight;
+          fabContainer.style.bottom = Math.max(10, Math.min(window.innerHeight - 50, bottomPx)) + 'px';
+        }
+        if (typeof data.fabRightRatio === 'number') {
+          const rightPx = data.fabRightRatio * window.innerWidth;
+          fabContainer.style.right = Math.max(10, Math.min(window.innerWidth - 50, rightPx)) + 'px';
+        }
       });
     } catch {}
   }
