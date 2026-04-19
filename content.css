@@ -60,17 +60,21 @@
 }
 
 /* 플로팅 번역 버튼 (FAB) */
+/* 호스트 페이지의 테마/필터 영향 차단 */
 .hotdog-fab {
   position: fixed;
   bottom: 30px;
   right: 24px;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: none;
-  background: #fff;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-  font-size: 22px;
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 50% !important;
+  border: none !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15) !important;
+  font-size: 22px !important;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", system-ui, -apple-system, sans-serif !important;
+  font-weight: normal !important;
   cursor: pointer;
   z-index: 2147483647;
   transition: all 0.2s;
@@ -79,16 +83,24 @@
   justify-content: center;
   user-select: none;
   opacity: 0.7;
+  filter: none !important;
+  -webkit-filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  mix-blend-mode: normal !important;
+  text-shadow: none !important;
+  color-scheme: light;
 }
 
 .hotdog-fab:hover {
   opacity: 1;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2) !important;
   transform: scale(1.1);
+  background: #ffffff !important;
 }
 
 .hotdog-fab--active {
-  background: #fee2e2;
+  background: #fee2e2 !important;
   opacity: 1;
 }
 
@@ -123,6 +135,11 @@
   flex-direction: column-reverse;
   align-items: center;
   gap: 6px;
+  isolation: isolate;
+  filter: none !important;
+  -webkit-filter: none !important;
+  mix-blend-mode: normal !important;
+  color-scheme: light;
 }
 
 .hotdog-fab-container .hotdog-fab {
