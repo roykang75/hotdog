@@ -26,6 +26,12 @@
 - [x] temperature 파라미터 제거 (GPT-5-mini 호환)
 - [x] AI API 에러 로깅 강화
 - [x] 코드 리뷰 이슈 수정 (XSS 방지, 캐시 키 충돌, API 응답 가드, 자막 번역 실패 처리)
+- [x] 블로그/가이드 페이지 번역 누락 개선 (CONTENT_AREA_SELECTOR 확장, CENTER 태그 지원)
+- [x] FAB 위치를 chrome.storage에 저장하여 탭 간 유지 (뷰포트 비율 기반)
+- [x] FAB 가로/세로 자유 드래그 이동 지원
+- [x] FAB이 호스트 페이지 테마의 영향을 받지 않도록 스타일 격리 (!important, isolation, color-scheme)
+- [x] 선택 번역 (드래그 → 툴팁, 캐시 공유)
+- [x] 단축키 지원 (`Alt+Shift+T` 번역 토글, `Alt+Shift+H` 번역 숨김/보임)
 
 ## Chrome 웹스토어 등록
 

@@ -18,32 +18,39 @@
     }, 2000);
   });
 
-  // --- fetch 인터셉트 ---
+  // timedtext URL 중 JSON/SRV3 파서블 포맷만 캡처하도록 제한
+  // (type=list 는 트랙 목록이고, fmt 미지정/vtt 는 파서블하지 않은 경우가 있어 덮어쓰기 방지)
+  function isCaptureableSubtitleUrl(url) {
+    if (!url || !url.includes('timedtext')) return false;
+    if (url.includes('type=list')) return false;
+    return url.includes('fmt=json3') || url.includes('fmt=srv3');
+  }
+
+  // --- fetch 인터셉트 --- URL 필터를 먼저 평가해 non-timedtext 요청 비용 최소화
   const originalFetch = window.fetch;
   window.fetch = async function (...args) {
+    const url = (typeof args[0] === 'string' ? args[0] : args[0]?.url) || '';
+    const capture = isCaptureableSubtitleUrl(url);
     const response = await originalFetch.apply(this, args);
+    if (!capture) return response;
     try {
-      const url = (typeof args[0] === 'string' ? args[0] : args[0]?.url) || '';
-      if (url.includes('timedtext') && !url.includes('type=list')) {
-        const clone = response.clone();
-        const text = await clone.text();
-        if (text && text.length > 0) {
-          capturedSubtitleData = text;
-        }
-      }
-    } catch { /* 인터셉트 실패는 무시 */ }
+      const text = await response.clone().text();
+      if (text && text.length > 0) capturedSubtitleData = text;
+    } catch { /* clone/read 실패는 무시 */ }
     return response;
   };
 
-  // --- XMLHttpRequest 인터셉트 ---
+  // --- XMLHttpRequest 인터셉트 --- 동일 XHR 재사용 시 listener 중복 등록 방지
   const origOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
     this.__hotdogUrl = typeof url === 'string' ? url : '';
+    this.__hotdogListenerAttached = false;
     return origOpen.call(this, method, url, ...rest);
   };
   const origSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.send = function (...args) {
-    if (this.__hotdogUrl.includes('timedtext') && !this.__hotdogUrl.includes('type=list')) {
+    if (!this.__hotdogListenerAttached && isCaptureableSubtitleUrl(this.__hotdogUrl)) {
+      this.__hotdogListenerAttached = true;
       this.addEventListener('load', function () {
         if (this.responseText && this.responseText.length > 0) {
           capturedSubtitleData = this.responseText;
@@ -154,7 +161,9 @@
           subs.push({ startMs: ev.tStartMs, endMs: ev.tStartMs + (ev.dDurationMs || 0), text: t });
         }
       } catch {
-        // regex로 XML 파싱 (DOMParser는 Trusted Types 정책에 의해 차단됨)
+        // fallback: json3 파싱 실패 시에만 도달 (YouTube는 srv3 XML 또는 TTML을 줄 수 있음)
+        // DOMParser는 YouTube의 Trusted Types 정책에 의해 차단되므로 regex 사용.
+        // 한계: <text> 속성 내 escape되지 않은 '<' 가 있으면 매칭이 깨질 수 있음 → 데이터 누락은 있지만 XSS 위험 없음.
         const regex = /<text[^>]*start="([\d.]+)"[^>]*dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g;
         let match;
         while ((match = regex.exec(text)) !== null) {

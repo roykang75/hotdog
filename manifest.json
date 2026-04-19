@@ -27,6 +27,17 @@
       "matches": [
         "<all_urls>"
       ],
+      "exclude_matches": [
+        "*://accounts.google.com/*",
+        "*://myaccount.google.com/*",
+        "*://passwords.google.com/*",
+        "*://login.microsoftonline.com/*",
+        "*://login.live.com/*",
+        "*://*.1password.com/*",
+        "*://*.bitwarden.com/*",
+        "*://*.lastpass.com/*",
+        "*://*.dashlane.com/*"
+      ],
       "css": [
         "content.css"
       ],

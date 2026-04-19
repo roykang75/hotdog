@@ -115,7 +115,11 @@ summarizeBtn.addEventListener('click', async () => {
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`AI API error: ${res.status} ${body.slice(0, 200)}`);
+      const redacted = body.slice(0, 200).replace(
+        /sk-[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|gh[pous]_[A-Za-z0-9_]+|Bearer\s+\S+/gi,
+        '[REDACTED]'
+      );
+      throw new Error(`AI API error: ${res.status} ${redacted}`);
     }
 
     const data = await res.json();
@@ -315,6 +319,18 @@ function openEditForm(server) {
   showView('viewServerForm');
 }
 
+function isValidEndpoint(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'https:') return true;
+    // localhost만 http 허용
+    if (u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 saveServerBtn.addEventListener('click', () => {
   const name = serverNameInput.value.trim();
   const endpoint = serverEndpointInput.value.trim();
@@ -322,6 +338,11 @@ saveServerBtn.addEventListener('click', () => {
   const apiKey = serverApiKeyInput.value.trim();
 
   if (!name || !endpoint || !model) return;
+
+  if (!isValidEndpoint(endpoint)) {
+    setStatus('Endpoint는 https:// 로 시작해야 합니다 (localhost는 http 허용).', 'error');
+    return;
+  }
 
   if (editingServerId) {
     // 편집

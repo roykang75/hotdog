@@ -245,7 +245,7 @@
   position: relative;
 }
 
-[data-tooltip]:hover::after {
+.hotdog-summary-card [data-tooltip]:hover::after {
   content: attr(data-tooltip);
   position: absolute;
   bottom: -28px;
@@ -360,4 +360,50 @@
   border-radius: 4px;
   max-width: 80%;
   animation: hotdog-fadein 0.2s ease;
+}
+
+/* 선택 번역 툴팁 */
+.hotdog-selection-tooltip {
+  position: absolute;
+  z-index: 2147483647;
+  max-width: 360px;
+  background: #ffffff !important;
+  color: #1a1a1a !important;
+  border: 1px solid #f0e6d0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  animation: hotdog-fadein 0.15s ease;
+  user-select: text;
+  isolation: isolate;
+  filter: none !important;
+  -webkit-filter: none !important;
+  mix-blend-mode: normal !important;
+  color-scheme: light;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.hotdog-selection-body {
+  display: block;
+  word-break: break-word;
+}
+
+.hotdog-selection-loading {
+  color: #92400e;
+  font-style: italic;
+}
+
+.hotdog-selection-error {
+  color: #b91c1c;
+}
+
+.hotdog-selection-text {
+  color: #1a1a1a;
+}
+
+/* 번역 숨김 모드 (Alt+Shift+H) */
+body.hotdog-hide-translation .hotdog-translation {
+  display: none !important;
 }

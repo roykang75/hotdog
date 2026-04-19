@@ -1,11 +1,10 @@
 (() => {
   if (window.__hotdogLoaded) return;
   window.__hotdogLoaded = true;
-  console.log('[Hotdog] v1.0.2 로드됨, SUBTITLE_BATCH=50');
 
   const BATCH_SIZE = 20;
-  const SUBTITLE_BATCH_SIZE = 50;
   const CACHE_MAX = 5000;
+  const SUMMARY_TTL_MS = 5 * 60 * 1000;
 
   // 번역 캐시 (메모리 + chrome.storage)
   const transCache = new Map();
@@ -33,8 +32,27 @@
     } catch {}
   }
 
+  function stringHash(str) {
+    // djb2 변형: 첫 200자 key 충돌을 줄이기 위해 전체 문자열 해시
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) {
+      h = (((h << 5) + h) ^ str.charCodeAt(i)) >>> 0;
+    }
+    return h.toString(16);
+  }
+
   function cacheKey(text, targetLang, engine) {
-    return `${targetLang}:${engine}:${text.length}:${text.slice(0, 200)}`;
+    return `${targetLang}:${engine}:${text.length}:${stringHash(text)}`;
+  }
+
+  function cacheGet(key) {
+    const v = transCache.get(key);
+    if (v !== undefined) {
+      // LRU 승격: 접근된 항목을 맨 뒤로
+      transCache.delete(key);
+      transCache.set(key, v);
+    }
+    return v;
   }
 
   // 번역 대상 블록 태그
@@ -51,8 +69,8 @@
     'TEXTAREA', 'INPUT', 'SVG', 'MATH', 'KBD', 'VAR'
   ]);
 
-  // 콘텐츠 영역 셀렉터 (우선순위순)
-  const CONTENT_AREA_SELECTOR = [
+  // 콘텐츠 영역 셀렉터 — 구체적인 아티클 셀렉터 (우선)
+  const CONTENT_AREA_SPECIFIC = [
     '.markdown-body',
     'article',
     '[role="article"]',
@@ -61,7 +79,10 @@
     '.article-body',
     '.blog-post',
     '.prose',
-    '.content-body',
+    '.content-body'
+  ].join(',');
+  // 페이지 전체 컨테이너 (보조 fallback 전용 — GitHub 레포 파일 표 같은 UI 오수집 방지)
+  const CONTENT_AREA_GENERIC = [
     'main',
     '#primary',
     '#content',
@@ -84,9 +105,9 @@
       sendResponse({ success: true });
     }
     if (message.action === 'summarize') {
-      const cacheUrl = location.href;
-      if (summaryCache.has(cacheUrl)) {
-        showSummaryCard(summaryCache.get(cacheUrl));
+      const cached = summaryCacheGet(location.href);
+      if (cached) {
+        showSummaryCard(cached);
         sendResponse({ success: true, cached: true });
         return;
       }
@@ -94,7 +115,7 @@
       sendResponse({ success: true, cached: false });
     }
     if (message.action === 'showSummaryCard') {
-      summaryCache.set(location.href, message.text);
+      summaryCacheSet(location.href, message.text);
       showSummaryCard(message.text);
       sendResponse({ success: true });
     }
@@ -107,6 +128,18 @@
     }
   });
 
+  // 화면에서 보이지 않는 요소 감지 (sr-only/visually-hidden/clip-rect 등)
+  function isVisuallyHidden(el) {
+    if (el.hidden) return true;
+    const cn = typeof el.className === 'string' ? el.className : '';
+    if (/\b(sr-only|visually-hidden|visuallyhidden|screen-reader)\b/i.test(cn)) return true;
+    if (/InternalVisuallyHidden|ScreenReaderHeading/.test(cn)) return true;
+    // 1x1 px 이하로 클리핑된 요소 (Primer/Bootstrap sr-only 패턴)
+    const r = el.getBoundingClientRect();
+    if (r.width <= 1 && r.height <= 1) return true;
+    return false;
+  }
+
   function collectBlockElements(root, elements, seen) {
     const walker = document.createTreeWalker(
       root,
@@ -115,14 +148,36 @@
         acceptNode(node) {
           if (SKIP_TAGS.has(node.tagName)) return NodeFilter.FILTER_REJECT;
           if (node.classList.contains('hotdog-translation')) return NodeFilter.FILTER_REJECT;
-          if (!BLOCK_TAGS.has(node.tagName)) return NodeFilter.FILTER_SKIP;
+          // 내비게이션/푸터/버튼은 UI 크롬으로 간주하여 내부 탐색 중단
+          if (node.closest?.('nav, footer, button, [role="navigation"], [role="button"]')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          // 스크린리더 전용 숨김 요소는 번역하면 없던 텍스트가 나타나므로 제외
+          if (isVisuallyHidden(node)) return NodeFilter.FILTER_REJECT;
+
+          const isDiv = node.tagName === 'DIV';
+          if (!BLOCK_TAGS.has(node.tagName) && !isDiv) return NodeFilter.FILTER_SKIP;
 
           const text = node.textContent.trim();
-          if (text.length < 2) return NodeFilter.FILTER_SKIP;
+          // DIV는 UI 파편 오수집 방지를 위해 더 엄격한 길이 기준
+          const minLen = isDiv ? 15 : 2;
+          if (text.length < minLen) return NodeFilter.FILTER_SKIP;
+
+          // DIV는 자신의 직접 텍스트 노드가 있을 때만 수집 (버튼 그룹 등 자식 UI 래퍼 차단)
+          if (isDiv) {
+            let hasDirectText = false;
+            for (const c of node.childNodes) {
+              if (c.nodeType === 3 && c.textContent.trim().length >= 2) { hasDirectText = true; break; }
+            }
+            if (!hasDirectText) return NodeFilter.FILTER_SKIP;
+          }
 
           // 후손에 블록 요소가 있으면 건너뛰고 후손을 번역
-          // (UL/OL 래퍼 안에 LI가 중첩된 경우 등 래퍼 태그를 건너뛰어야 함)
-          if (node.querySelector(BLOCK_DESCENDANT_SELECTOR)) return NodeFilter.FILTER_SKIP;
+          // DIV는 후손 DIV/버튼/폼 컨트롤까지 포함해서 검사 (UI 파편 오수집 방지)
+          const descSelector = isDiv
+            ? BLOCK_DESCENDANT_SELECTOR + ',div,button,[role="button"],form,select'
+            : BLOCK_DESCENDANT_SELECTOR;
+          if (node.querySelector(descSelector)) return NodeFilter.FILTER_SKIP;
 
           // 이미 번역된 요소 건너뛰기
           if (node.querySelector('.hotdog-translation')) return NodeFilter.FILTER_SKIP;
@@ -258,19 +313,23 @@
       return elements;
     }
 
-    // 1단계: 콘텐츠 영역 내 블록 요소 수집
-    const contentAreas = document.querySelectorAll(CONTENT_AREA_SELECTOR);
-    for (const area of contentAreas) {
+    // 1단계: 구체적인 아티클 영역(.markdown-body, article 등) 수집
+    const specificAreas = document.querySelectorAll(CONTENT_AREA_SPECIFIC);
+    for (const area of specificAreas) {
       collectBlockElements(area, elements, seen);
     }
 
-    // 2단계: 콘텐츠 영역 밖의 독립 단락 및 제목 (예: GitHub About 설명, Reddit 게시글 제목)
+    const specificChars = elements.reduce((n, el) => n + el.textContent.trim().length, 0);
+    const specificEnough = elements.length >= 5 && specificChars >= 500;
+
+    // 2단계: 아티클 영역 밖의 독립 단락 및 제목 (GitHub About 설명, Reddit 게시글 제목 등)
     const mainEl = document.querySelector('main, [role="main"]') || document.body;
     const HEADING_TAGS = new Set(['H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
     for (const el of mainEl.querySelectorAll('p, h1, h2, h3, h4, h5, h6')) {
       if (seen.has(el)) continue;
-      if (el.closest(CONTENT_AREA_SELECTOR)) continue;
+      if (el.closest(CONTENT_AREA_SPECIFIC)) continue;
       if (el.closest('nav, footer, button, [role="navigation"]')) continue;
+      if (isVisuallyHidden(el)) continue;
       const text = el.textContent.trim();
       const minLen = HEADING_TAGS.has(el.tagName) ? 2 : 20;
       if (text.length < minLen) continue;
@@ -279,23 +338,42 @@
       elements.push(el);
     }
 
-    // 3단계: 수집된 요소가 부족하면 main 전체에서 블록 요소 추가 탐색
-    // (본문이 대부분 LI 구조이거나 래퍼 클래스가 없는 페이지 대응)
-    const totalChars = elements.reduce((n, el) => n + el.textContent.trim().length, 0);
-    if (elements.length < 5 || totalChars < 500) {
-      collectBlockElements(mainEl, elements, seen);
+    // 3단계: 구체 영역이 충분치 않으면 main/#content 등 일반 컨테이너까지 확장
+    //         (GitHub 레포 파일 표 같은 UI는 specific이 충분할 때 건드리지 않음)
+    if (!specificEnough) {
+      for (const area of document.querySelectorAll(CONTENT_AREA_GENERIC)) {
+        collectBlockElements(area, elements, seen);
+      }
     }
 
     return elements;
   }
 
+  // 바이트 ~900자 기준으로 구두점/공백 경계에서 분할 위치 선택
+  function findSplitIndex(text) {
+    const mid = Math.floor(text.length / 2);
+    const window = Math.floor(text.length / 4);
+    // 중앙부에서 구두점 → 공백 순으로 근접 탐색
+    for (const re of [/[.!?。！？]\s?/g, /[,、]\s?/g, /\s/g]) {
+      let best = -1;
+      let m;
+      while ((m = re.exec(text))) {
+        const end = m.index + m[0].length;
+        if (Math.abs(end - mid) <= window && Math.abs(end - mid) < Math.abs(best - mid)) {
+          best = end;
+        }
+      }
+      if (best > 0) return best;
+    }
+    return mid;
+  }
+
   async function translateTextGoogle(text, targetLang) {
-    // 긴 텍스트는 분할 번역 (URL 길이 제한 ~2000자)
+    // 긴 텍스트는 분할 번역 (URL 길이 제한 ~2000자, 바이트 기준)
     if (encodeURIComponent(text).length > 1800) {
-      const sentences = text.match(/[^.!?。！？]+[.!?。！？]+|[^.!?。！？]+$/g) || [text];
-      const mid = Math.ceil(sentences.length / 2);
-      const part1 = sentences.slice(0, mid).join('');
-      const part2 = sentences.slice(mid).join('');
+      const splitIdx = findSplitIndex(text);
+      const part1 = text.slice(0, splitIdx);
+      const part2 = text.slice(splitIdx);
       const [r1, r2] = await Promise.all([
         translateTextGoogle(part1, targetLang),
         translateTextGoogle(part2, targetLang),
@@ -347,18 +425,24 @@
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`AI API error: ${res.status} ${body.slice(0, 500)}`);
+      const redacted = body.slice(0, 200).replace(
+        /sk-[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|gh[pous]_[A-Za-z0-9_]+|Bearer\s+\S+/gi,
+        '[REDACTED]'
+      );
+      throw new Error(`AI API error: ${res.status} ${redacted}`);
     }
 
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content || '';
 
     const results = new Array(texts.length).fill('');
+    // 모델이 [0], 0., (0), 0) 등 다양한 포맷으로 응답하더라도 파싱
+    const numberedRe = /^\s*(?:\[(\d+)\]|\((\d+)\)|(\d+)[.)])\s*(.+)/;
     for (const line of content.split('\n')) {
-      const match = line.match(/^\[(\d+)\]\s*(.+)/);
+      const match = line.match(numberedRe);
       if (match) {
-        const idx = parseInt(match[1], 10);
-        if (idx >= 0 && idx < texts.length) results[idx] = match[2].trim();
+        const idx = parseInt(match[1] || match[2] || match[3], 10);
+        if (idx >= 0 && idx < texts.length) results[idx] = match[4].trim();
       }
     }
     return results;
@@ -417,7 +501,7 @@
       const uncachedIndices = [];
       for (let idx = 0; idx < batch.length; idx++) {
         const key = cacheKey(texts[idx], targetLang, engineKey);
-        const cached = transCache.get(key);
+        const cached = cacheGet(key);
         if (cached) {
           if (replaceWithTranslation(loaders[idx], batch[idx], cached, texts[idx])) translatedCount++;
           cacheHits++;
@@ -429,13 +513,18 @@
       if (uncachedIndices.length === 0) continue;
 
       if (useAI) {
-        const uncachedTexts = uncachedIndices.map((idx) => texts[idx]);
-        const results = await translateTextWithAI(uncachedTexts, targetLang, aiConfig);
-        uncachedIndices.forEach((idx, ri) => {
-          const translated = results[ri];
-          if (translated) transCache.set(cacheKey(texts[idx], targetLang, engineKey), translated);
-          if (replaceWithTranslation(loaders[idx], batch[idx], translated, texts[idx])) translatedCount++;
-        });
+        try {
+          const uncachedTexts = uncachedIndices.map((idx) => texts[idx]);
+          const results = await translateTextWithAI(uncachedTexts, targetLang, aiConfig);
+          uncachedIndices.forEach((idx, ri) => {
+            const translated = results[ri];
+            if (translated) transCache.set(cacheKey(texts[idx], targetLang, engineKey), translated);
+            if (replaceWithTranslation(loaders[idx], batch[idx], translated, texts[idx])) translatedCount++;
+          });
+        } catch (err) {
+          uncachedIndices.forEach((idx) => loaders[idx]?.remove());
+          throw err;
+        }
       } else {
         // Google Translate: 동시 요청 5개로 제한하여 rate limit 회피
         for (let j = 0; j < uncachedIndices.length; j += 5) {
@@ -467,11 +556,16 @@
   function removeTranslations() {
     document.querySelectorAll('.hotdog-translation, .hotdog-translation-wrap, .hotdog-loading, .hotdog-gmail-subject-wrap').forEach((el) => el.remove());
     stopSubtitleSync();
+    if (translationHidden) {
+      translationHidden = false;
+      document.body.classList.remove('hotdog-hide-translation');
+    }
   }
 
   // ===== YouTube 자막 모듈 =====
 
   let subtitleSyncHandler = null;
+  let subtitleSyncVideo = null;
   let subtitleOverlay = null;
   let ytSubtitleBtn = null;
   let ytSubtitleActive = false;
@@ -602,14 +696,15 @@
     };
 
     video.addEventListener('timeupdate', subtitleSyncHandler);
+    subtitleSyncVideo = video;
   }
 
   function stopSubtitleSync() {
-    if (subtitleSyncHandler) {
-      const video = document.querySelector('video');
-      if (video) video.removeEventListener('timeupdate', subtitleSyncHandler);
-      subtitleSyncHandler = null;
+    if (subtitleSyncHandler && subtitleSyncVideo) {
+      subtitleSyncVideo.removeEventListener('timeupdate', subtitleSyncHandler);
     }
+    subtitleSyncHandler = null;
+    subtitleSyncVideo = null;
     if (subtitleOverlay) {
       subtitleOverlay.remove();
       subtitleOverlay = null;
@@ -697,15 +792,53 @@
   const YT_ICON_ACTIVE = '<svg viewBox="0 0 36 36" width="36" height="36"><text x="14" y="18" text-anchor="middle" font-size="18">🌭</text><circle cx="26" cy="8" r="4" fill="#ef4444"/></svg>';
   const YT_ICON_LOADING = '<svg viewBox="0 0 36 36" width="36" height="36"><text x="14" y="18" text-anchor="middle" font-size="18">🌭</text><g transform-origin="14 6"><animateTransform attributeName="transform" type="rotate" from="0 14 6" to="360 14 6" dur="1s" repeatCount="indefinite"/><text x="14" y="9" text-anchor="middle" font-size="8">♨️</text></g></svg>';
 
+  // 컨트롤 바에서 hotdog 버튼 중복 제거 — 첫 번째만 남기고 나머지 삭제
+  function dedupeYouTubeButtons() {
+    const all = document.querySelectorAll('.hotdog-yt-btn');
+    if (all.length <= 1) return;
+    for (let i = 1; i < all.length; i++) all[i].remove();
+    ytSubtitleBtn = all[0];
+  }
+
+  let ytButtonObserver = null;
+  function ensureYouTubeButtonObserver() {
+    if (ytButtonObserver || !document.body) return;
+    ytButtonObserver = new MutationObserver((mutations) => {
+      // hotdog 버튼 관련 변경일 때만 dedupe 실행 (영상 진행바 등 빈번한 갱신 비용 최소화)
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.classList?.contains('hotdog-yt-btn') || node.querySelector?.('.hotdog-yt-btn')) {
+            dedupeYouTubeButtons();
+            return;
+          }
+        }
+      }
+    });
+    ytButtonObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
   function initYouTubeButton() {
-    // 기존 버튼 제거
-    if (ytSubtitleBtn) { ytSubtitleBtn.remove(); ytSubtitleBtn = null; }
+    // SPA 라우팅 중 DOM 재구성으로 레퍼런스가 어긋나 중복 버튼이 남는 경우가 있어
+    // 모든 인스턴스를 전체 쿼리로 제거한 뒤 새로 삽입
+    document.querySelectorAll('.hotdog-yt-btn').forEach((el) => el.remove());
+    ytSubtitleBtn = null;
     ytSubtitleActive = false;
 
     if (!isYouTubeWatch()) return;
 
-    const rightControls = document.querySelector('.ytp-right-controls');
+    // YouTube는 레이아웃 변형에 따라 .ytp-right-controls / .ytp-right-controls-left 등을 사용
+    const rightControls =
+      document.querySelector('.ytp-right-controls-left') ||
+      document.querySelector('.ytp-right-controls');
     if (!rightControls) return;
+
+    // 동일 컨테이너에 이미 버튼이 있다면 재사용 (race guard)
+    const existing = rightControls.querySelector('.hotdog-yt-btn');
+    if (existing) {
+      ytSubtitleBtn = existing;
+      return;
+    }
 
     const btn = document.createElement('button');
     btn.className = 'hotdog-yt-btn ytp-button';
@@ -714,6 +847,8 @@
     btn.addEventListener('click', onYtBtnClick);
     rightControls.insertBefore(btn, rightControls.firstChild);
     ytSubtitleBtn = btn;
+
+    ensureYouTubeButtonObserver();
   }
 
   async function onYtBtnClick() {
@@ -804,7 +939,23 @@
   // ===== 플로팅 번역 버튼 (FAB) =====
 
   let fabTranslated = false;
-  const summaryCache = new Map();
+  let fabButton = null;
+  let translationHidden = false;
+  const summaryCache = new Map(); // url -> { text, ts }
+
+  function summaryCacheGet(url) {
+    const entry = summaryCache.get(url);
+    if (!entry) return null;
+    if (Date.now() - entry.ts > SUMMARY_TTL_MS) {
+      summaryCache.delete(url);
+      return null;
+    }
+    return entry.text;
+  }
+
+  function summaryCacheSet(url, text) {
+    summaryCache.set(url, { text, ts: Date.now() });
+  }
 
   function getStoredSettings() {
     return new Promise((resolve) => {
@@ -840,13 +991,12 @@
     const fab = document.createElement('button');
     fab.className = 'hotdog-fab';
     fab.innerHTML = '🌭';
-    fab.title = '번역';
+    fab.title = '번역 (Alt+Shift+T)';
+    fabButton = fab;
 
-    // 드래그 지원 (가로/세로 자유 이동)
-    let isDragging = false;
-
+    // 드래그 지원 (가로/세로 자유 이동) — 드래그 이후 click은 capture 단계에서 1회 억제
     fab.addEventListener('mousedown', (e) => {
-      isDragging = false;
+      let dragged = false;
       const container = fab.closest('.hotdog-fab-container');
       const rect = container.getBoundingClientRect();
       const startX = e.clientX;
@@ -859,8 +1009,8 @@
       const onMove = (e2) => {
         const dx = e2.clientX - startX;
         const dy = e2.clientY - startY;
-        if (Math.hypot(dx, dy) > 5) isDragging = true;
-        if (isDragging) {
+        if (!dragged && Math.hypot(dx, dy) > 5) dragged = true;
+        if (dragged) {
           container.classList.add('hotdog-fab-dragging');
           const newRight = Math.max(10, Math.min(window.innerWidth - w - 10, startRight - dx));
           const newBottom = Math.max(10, Math.min(window.innerHeight - h - 10, startBottom - dy));
@@ -872,8 +1022,7 @@
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
         container.classList.remove('hotdog-fab-dragging');
-        // 드래그로 이동한 경우 위치를 뷰포트 크기 대비 비율로 저장
-        if (isDragging) {
+        if (dragged) {
           const bottomPx = parseFloat(container.style.bottom) || 0;
           const rightPx = parseFloat(container.style.right) || 0;
           try {
@@ -882,6 +1031,15 @@
               fabRightRatio: rightPx / window.innerWidth,
             });
           } catch {}
+          // 드래그 직후 자동 발사되는 click 1회 억제 (미발사 시 다음 진짜 click엔 영향 없음)
+          const suppress = (ev) => {
+            ev.stopImmediatePropagation();
+            ev.preventDefault();
+            fab.removeEventListener('click', suppress, true);
+          };
+          fab.addEventListener('click', suppress, { capture: true, once: true });
+          // 안전망: click이 fire되지 않는 브라우저에서도 다음 tick에 리스너 자동 제거
+          setTimeout(() => fab.removeEventListener('click', suppress, true), 0);
         }
       };
       document.addEventListener('mousemove', onMove);
@@ -889,11 +1047,6 @@
     });
 
     fab.addEventListener('click', async () => {
-      if (isDragging) {
-        isDragging = false;
-        return;
-      }
-
       if (fabTranslated) {
         removeTranslations();
         fabTranslated = false;
@@ -934,8 +1087,9 @@
 
       // 캐시 히트 시 즉시 표시
       const cacheUrl = location.href;
-      if (summaryCache.has(cacheUrl)) {
-        showSummaryCard(summaryCache.get(cacheUrl));
+      const cached = summaryCacheGet(cacheUrl);
+      if (cached) {
+        showSummaryCard(cached);
         return;
       }
 
@@ -976,7 +1130,7 @@
         if (!res.ok) throw new Error(`AI API error: ${res.status}`);
         const data = await res.json();
         const summary = data.choices?.[0]?.message?.content || '요약 결과 없음';
-        summaryCache.set(cacheUrl, summary);
+        summaryCacheSet(cacheUrl, summary);
         showSummaryCard(summary);
       } catch (err) {
         showSummaryCard('요약 실패: ' + (err.message || '알 수 없는 오류'));
@@ -1011,11 +1165,12 @@
     let html = '';
     let listDepth = 0;
 
+    // 먼저 HTML escape → 인라인 패턴 치환 (탐욕 매칭/라인 걸침 방지)
     const inline = (s) => s
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      .replace(/`(.+?)`/g, '<code>$1</code>');
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>');
 
     const closeListsTo = (depth) => {
       while (listDepth > depth) { html += '</ul>'; listDepth--; }
@@ -1101,9 +1256,193 @@
     document.body.appendChild(card);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initFab);
-  } else {
+  // ===== 선택 번역 (드래그 → 툴팁) =====
+
+  let selectionTooltip = null;
+  let selectionAnchorRect = null;
+  let selectionRequestId = 0;
+
+  function closeSelectionTooltip() {
+    if (selectionTooltip) {
+      selectionTooltip.remove();
+      selectionTooltip = null;
+      selectionAnchorRect = null;
+    }
+  }
+
+  function createSelectionTooltip(rangeRect) {
+    closeSelectionTooltip();
+    const tip = document.createElement('div');
+    tip.className = 'hotdog-selection-tooltip';
+    const body = document.createElement('div');
+    body.className = 'hotdog-selection-body';
+    const loader = document.createElement('span');
+    loader.className = 'hotdog-selection-loading';
+    loader.textContent = '번역 중…';
+    body.appendChild(loader);
+    tip.appendChild(body);
+    document.body.appendChild(tip);
+
+    selectionTooltip = tip;
+    selectionAnchorRect = rangeRect;
+    positionSelectionTooltip();
+  }
+
+  function positionSelectionTooltip() {
+    if (!selectionTooltip || !selectionAnchorRect) return;
+    const margin = 8;
+    const r = selectionAnchorRect;
+    selectionTooltip.style.left = '0px';
+    selectionTooltip.style.top = '0px';
+    const tipRect = selectionTooltip.getBoundingClientRect();
+    const tipW = tipRect.width;
+    const tipH = tipRect.height;
+
+    let top = r.bottom + margin;
+    if (top + tipH > window.innerHeight - 10) {
+      top = Math.max(10, r.top - tipH - margin);
+    }
+    let left = r.left;
+    left = Math.max(10, Math.min(window.innerWidth - tipW - 10, left));
+
+    selectionTooltip.style.left = (left + window.scrollX) + 'px';
+    selectionTooltip.style.top = (top + window.scrollY) + 'px';
+  }
+
+  function updateSelectionTooltip(text, isError) {
+    if (!selectionTooltip) return;
+    const body = selectionTooltip.querySelector('.hotdog-selection-body');
+    if (!body) return;
+    body.textContent = '';
+    const span = document.createElement('span');
+    span.className = isError ? 'hotdog-selection-error' : 'hotdog-selection-text';
+    span.textContent = text;
+    body.appendChild(span);
+    positionSelectionTooltip();
+  }
+
+  async function translateSelection(text) {
+    await loadCache();
+    const settings = await getStoredSettings();
+    const targetLang = settings.targetLang || 'ko';
+    const { engine, aiConfig } = parseEngine(settings);
+    const engineKey = engine === 'ai' && aiConfig ? `ai:${aiConfig.model}` : engine;
+
+    const key = cacheKey(text, targetLang, engineKey);
+    const cached = transCache.get(key);
+    if (cached) return cached;
+
+    let translated = '';
+    if (engine === 'ai' && aiConfig) {
+      if (!aiConfig.endpoint || !aiConfig.model || !aiConfig.apiKey) {
+        throw new Error('AI 설정이 완료되지 않았습니다.');
+      }
+      const results = await translateTextWithAI([text], targetLang, aiConfig);
+      translated = (results[0] || '').trim();
+    } else {
+      translated = (await translateTextGoogle(text, targetLang) || '').trim();
+    }
+
+    if (translated) {
+      transCache.set(key, translated);
+      saveCache();
+    }
+    return translated;
+  }
+
+  function isEditableTarget(e) {
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+    for (const node of path) {
+      if (!node || node.nodeType !== 1) continue;
+      const tag = node.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (node.isContentEditable) return true;
+    }
+    const a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return true;
+    return false;
+  }
+
+  function initSelectionTranslation() {
+    document.addEventListener('mouseup', (e) => {
+      // 자체 UI 내부는 제외
+      const t = e.target;
+      if (t && t.closest && t.closest(
+        '.hotdog-fab-container, .hotdog-summary-card, .hotdog-selection-tooltip'
+      )) return;
+      if (isEditableTarget(e)) return;
+
+      // selection은 mouseup 직후에도 이전 상태일 수 있어 약간 지연
+      setTimeout(async () => {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+        const text = sel.toString().trim();
+        if (text.length < 2 || text.length > 2000) return;
+
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return;
+
+        const reqId = ++selectionRequestId;
+        createSelectionTooltip(rect);
+
+        try {
+          const translated = await translateSelection(text);
+          if (reqId !== selectionRequestId) return;
+          updateSelectionTooltip(translated || '번역 결과가 없습니다.', !translated);
+        } catch (err) {
+          if (reqId !== selectionRequestId) return;
+          updateSelectionTooltip('번역 실패: ' + (err.message || '알 수 없는 오류'), true);
+        }
+      }, 10);
+    });
+
+    document.addEventListener('mousedown', (e) => {
+      if (!selectionTooltip) return;
+      if (e.target && e.target.closest && e.target.closest('.hotdog-selection-tooltip')) return;
+      selectionRequestId++;
+      closeSelectionTooltip();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && selectionTooltip) {
+        selectionRequestId++;
+        closeSelectionTooltip();
+      }
+    });
+  }
+
+  // ===== 단축키 =====
+
+  function toggleTranslationVisibility() {
+    translationHidden = !translationHidden;
+    document.body.classList.toggle('hotdog-hide-translation', translationHidden);
+  }
+
+  function initKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+      if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
+      if (isEditableTarget(e)) return;
+
+      if (e.code === 'KeyT') {
+        e.preventDefault();
+        if (fabButton) fabButton.click();
+      } else if (e.code === 'KeyH') {
+        e.preventDefault();
+        toggleTranslationVisibility();
+      }
+    });
+  }
+
+  function initExtras() {
     initFab();
+    initSelectionTranslation();
+    initKeyboardShortcuts();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initExtras);
+  } else {
+    initExtras();
   }
 })();
