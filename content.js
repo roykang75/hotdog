@@ -472,7 +472,10 @@
       translationEl.style.cssText = 'display:block!important;grid-column:1/-1!important;width:100%!important;';
       el.appendChild(translationEl);
     } else {
-      el.after(translationEl);
+      // 원문 요소 내부에 삽입하여, 요소 자체의 margin-bottom이
+      // 번역과 다음 단락 사이 간격을 자연스럽게 만들도록 한다.
+      // (sibling으로 after() 삽입 시 margin collapsing으로 번역이 다음 단락에 붙어보임)
+      el.appendChild(translationEl);
     }
     return true;
   }
