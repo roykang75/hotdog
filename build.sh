@@ -17,7 +17,8 @@ zip -r "$OUTPUT" \
   content.js \
   content.css \
   youtube-main.js \
-  icons/
+  icons/ \
+  -x "icons/webstore-128.png" "icons/hotdog.svg"
 
 echo "✅ Created $OUTPUT"
 unzip -l "$OUTPUT"
