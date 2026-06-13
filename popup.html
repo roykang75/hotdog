@@ -39,16 +39,43 @@
         <button id="summarizeBtn" class="btn-summarize" disabled>요약</button>
       </div>
       <button id="removeBtn" class="btn-remove">번역 제거</button>
-      <button id="manageBtn" class="btn-manage">⚙ AI 서버 관리</button>
-      <button id="clearCacheBtn" class="btn-manage">🗑 번역 캐시 삭제</button>
+      <button id="settingsBtn" class="btn-manage">⚙ 설정</button>
 
       <p id="status" class="status"></p>
+    </div>
+
+    <!-- View: 설정 -->
+    <div id="viewSettings" class="view">
+      <div class="view-header">
+        <button class="btn-back" data-target="viewMain">←</button>
+        <span>설정</span>
+      </div>
+
+      <p class="section-label">AI</p>
+      <button id="manageBtn" class="btn-manage btn-settings-row">⚙ AI 서버 관리</button>
+
+      <p class="section-label">캡처</p>
+      <div class="field">
+        <label for="captureHide">📸 캡처 숨김 시간</label>
+        <select id="captureHide">
+          <option value="2">2초</option>
+          <option value="3">3초</option>
+          <option value="5">5초</option>
+          <option value="7">7초</option>
+          <option value="10">10초</option>
+        </select>
+      </div>
+
+      <p class="section-label">데이터</p>
+      <button id="clearCacheBtn" class="btn-manage btn-settings-row">🗑 번역 캐시 삭제</button>
+
+      <p id="settingsStatus" class="status"></p>
     </div>
 
     <!-- View 2: 서버 목록 -->
     <div id="viewServers" class="view">
       <div class="view-header">
-        <button class="btn-back" data-target="viewMain">←</button>
+        <button class="btn-back" data-target="viewSettings">←</button>
         <span>AI 서버 관리</span>
       </div>
       <div id="serverList"></div>
@@ -99,6 +126,7 @@
         </p>
       </div>
       <button id="saveServerBtn" class="btn-save">저장</button>
+      <p id="formStatus" class="status"></p>
     </div>
   </div>
 

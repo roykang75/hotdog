@@ -32,6 +32,17 @@
 - [x] FAB이 호스트 페이지 테마의 영향을 받지 않도록 스타일 격리 (!important, isolation, color-scheme)
 - [x] 선택 번역 (드래그 → 툴팁, 캐시 공유)
 - [x] 단축키 지원 (`Alt+Shift+T` 번역 토글, `Alt+Shift+H` 번역 숨김/보임)
+- [x] 시니어 코드 리뷰 대응 (renderMarkdown 하드닝, API 토큰 마스킹 + endpoint https 강제, fetch 몽키패치 정리, cacheKey 해시+LRU, AI 실패 시 loader 정리, 민감 도메인 exclude_matches)
+- [x] GitHub 레포 페이지 오번역 수정 (specific/generic 콘텐츠 영역 분리로 파일 목록 표 제외, sr-only/ScreenReaderHeading/1x1px 요소 감지, DIV 조건부 포함)
+- [x] YouTube 컨트롤 바 🌭 버튼 중복 수정 (querySelectorAll 전체 정리 + MutationObserver dedupe, `.ytp-right-controls-left` 신규 레이아웃 지원)
+- [x] 번역 문장이 다음 원문 위에 붙어 보이는 문제 수정 (sibling after → 원문 요소 내부 appendChild로 변경, margin collapsing 회피)
+- [x] 서버 추가/저장 폼 인라인 검증 (빈 칸·잘못된 endpoint를 폼에서 즉시 안내)
+- [x] AI 엔드포인트 http 허용 + 모든 AI 호출을 background 서비스워커 경유로 (혼합 콘텐츠/CORS 우회, host_permissions 확장)
+- [x] 번역 실패 시 페이지 에러 토스트 표시 (팝업이 닫혀도 원인 노출)
+- [x] FAB 번역 중 중복 번역 방지 (isTranslating 잠금)
+- [x] 번역 중 "핫도그 데워지는" 효과 (그릴 배경 + 바닥 열기 + 김 + 지글거림)
+- [x] FAB 캡처용 숨김 버튼 (📸, hover 시 상단 노출, 클릭 시 N초간 숨김 — 설정 가능)
+- [x] 팝업 설정 화면 분리 (메인=번역, 설정 뷰에 AI/캡처/데이터 카테고리)
 
 ## Chrome 웹스토어 등록
 

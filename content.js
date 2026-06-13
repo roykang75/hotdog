@@ -97,7 +97,11 @@
     if (message.action === 'translate') {
       handleTranslate(message.targetLang, message.engine, message.aiConfig)
         .then((result) => sendResponse({ success: true, count: result.count, subtitleCount: result.subtitleCount }))
-        .catch((err) => sendResponse({ success: false, error: err.message }));
+        .catch((err) => {
+          // 팝업이 닫혀 있어도 실패 원인이 보이도록 페이지에 토스트로 표시
+          showErrorToast('번역 실패: ' + (err.message || '알 수 없는 오류'));
+          sendResponse({ success: false, error: err.message });
+        });
       return true;
     }
     if (message.action === 'remove') {
@@ -405,14 +409,14 @@
     const langName = LANG_NAMES[targetLang] || targetLang;
     const numbered = texts.map((t, i) => `[${i}] ${t}`).join('\n');
 
-    const res = await fetch(`${aiConfig.endpoint}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${aiConfig.apiKey}`,
-      },
-      body: JSON.stringify({
+    // https 페이지 → http AI 서버 요청은 혼합 콘텐츠로 차단되므로
+    // background 서비스워커를 경유해 호출한다.
+    const resp = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({
+        action: 'aiChat',
+        endpoint: aiConfig.endpoint,
         model: aiConfig.model,
+        apiKey: aiConfig.apiKey,
         messages: [
           {
             role: 'system',
@@ -420,20 +424,21 @@
           },
           { role: 'user', content: numbered },
         ],
-      }),
+      }, (r) => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(r);
+      });
     });
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      const redacted = body.slice(0, 200).replace(
+    if (!resp?.success) {
+      const redacted = String(resp?.error || '알 수 없는 오류').slice(0, 200).replace(
         /sk-[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|gh[pous]_[A-Za-z0-9_]+|Bearer\s+\S+/gi,
         '[REDACTED]'
       );
-      throw new Error(`AI API error: ${res.status} ${redacted}`);
+      throw new Error(resp?.status ? `AI API error: ${resp.status} ${redacted}` : `AI 요청 실패: ${redacted}`);
     }
 
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content || '';
+    const content = resp.content || '';
 
     const results = new Array(texts.length).fill('');
     // 모델이 [0], 0., (0), 0) 등 다양한 포맷으로 응답하더라도 파싱
@@ -480,7 +485,12 @@
     return true;
   }
 
+  let isTranslating = false;
   async function handleTranslate(targetLang, engine, aiConfig) {
+    // 번역이 진행 중일 때 다시 호출되면 중복 번역이 누적되므로 차단
+    if (isTranslating) return { count: 0, subtitleCount: 0, busy: true };
+    isTranslating = true;
+    try {
     removeTranslations();
     await loadCache();
 
@@ -553,10 +563,54 @@
       throw new Error('번역할 텍스트를 찾을 수 없습니다.');
     }
 
+    // 대상 블록은 찾았지만 한 개도 번역되지 않은 경우(요청 실패/이미 대상 언어 등)
+    if (translatedCount === 0) {
+      showErrorToast('번역된 내용이 없습니다. 번역 요청이 실패했거나 이미 대상 언어일 수 있습니다.');
+    }
+
     return { count: translatedCount, subtitleCount: 0 };
+    } finally {
+      isTranslating = false;
+    }
+  }
+
+  let errorToastTimer = null;
+  function showErrorToast(message) {
+    document.querySelector('.hotdog-error-toast')?.remove();
+    if (errorToastTimer) clearTimeout(errorToastTimer);
+
+    const toast = document.createElement('div');
+    toast.className = 'hotdog-error-toast';
+    // 호스트 페이지 테마/CSS에 영향받지 않도록 인라인으로 스타일 격리
+    toast.style.cssText = [
+      'all: revert',
+      'position: fixed',
+      'left: 50%',
+      'bottom: 24px',
+      'transform: translateX(-50%)',
+      'z-index: 2147483647',
+      'max-width: 360px',
+      'box-sizing: border-box',
+      'padding: 12px 16px',
+      'background: #1f2328',
+      'color: #ffd7d5',
+      'font: 500 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      'border: 1px solid #f85149',
+      'border-radius: 10px',
+      'box-shadow: 0 6px 24px rgba(0,0,0,0.35)',
+      'cursor: pointer',
+      'white-space: pre-wrap',
+      'word-break: break-word',
+    ].join(';');
+    toast.textContent = message;
+    toast.addEventListener('click', () => toast.remove());
+    document.body.appendChild(toast);
+
+    errorToastTimer = setTimeout(() => toast.remove(), 8000);
   }
 
   function removeTranslations() {
+    document.querySelector('.hotdog-error-toast')?.remove();
     document.querySelectorAll('.hotdog-translation, .hotdog-translation-wrap, .hotdog-loading, .hotdog-gmail-subject-wrap').forEach((el) => el.remove());
     stopSubtitleSync();
     if (translationHidden) {
@@ -988,12 +1042,25 @@
     return { engine, aiConfig };
   }
 
+  // 캡처용: FAB을 잠시 숨겼다가 다시 보이게 한다
+  let captureHideTimer = null;
+  function hideFabForCapture(durationMs = 3000) {
+    const container = document.querySelector('.hotdog-fab-container');
+    if (!container) return;
+    if (captureHideTimer) clearTimeout(captureHideTimer);
+    container.classList.add('hotdog-fab-hidden-capture');
+    captureHideTimer = setTimeout(() => {
+      container.classList.remove('hotdog-fab-hidden-capture');
+      captureHideTimer = null;
+    }, durationMs);
+  }
+
   function initFab() {
     if (document.querySelector('.hotdog-fab-container')) return;
 
     const fab = document.createElement('button');
     fab.className = 'hotdog-fab';
-    fab.innerHTML = '🌭';
+    fab.innerHTML = '<span class="hotdog-fab-emoji">🌭</span>';
     fab.title = '번역 (Alt+Shift+T)';
     fabButton = fab;
 
@@ -1050,6 +1117,9 @@
     });
 
     fab.addEventListener('click', async () => {
+      // 번역이 진행 중이면 클릭 무시 (완료 전 재클릭 시 중복 번역 방지)
+      if (isTranslating) return;
+
       if (fabTranslated) {
         removeTranslations();
         fabTranslated = false;
@@ -1066,10 +1136,12 @@
         const targetLang = settings.targetLang || 'ko';
         const { engine, aiConfig } = parseEngine(settings);
 
-        await handleTranslate(targetLang, engine, aiConfig);
-        fabTranslated = true;
-        fab.classList.add('hotdog-fab--active');
-        fab.title = '번역 제거';
+        const result = await handleTranslate(targetLang, engine, aiConfig);
+        if (!result.busy) {
+          fabTranslated = true;
+          fab.classList.add('hotdog-fab--active');
+          fab.title = '번역 제거';
+        }
       } catch (err) {
         fab.title = err.message || '번역 실패';
         setTimeout(() => { fab.title = '번역'; }, 3000);
@@ -1118,21 +1190,24 @@
         const targetLang = settings.targetLang || 'ko';
         const langName = LANG_NAMES[targetLang] || targetLang;
 
-        const res = await fetch(`${aiConfig.endpoint}/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.apiKey}` },
-          body: JSON.stringify({
+        const resp = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({
+            action: 'aiChat',
+            endpoint: aiConfig.endpoint,
             model: aiConfig.model,
+            apiKey: aiConfig.apiKey,
             messages: [
               { role: 'system', content: `You are a summarizer. Summarize the following page content concisely in ${langName}. Format your response in markdown: use "- " for bullet points, "**bold**" for emphasis, and "## " for section headers if needed. Be specific, not generic.` },
               { role: 'user', content: text },
             ],
-          }),
+          }, (r) => {
+            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+            else resolve(r);
+          });
         });
 
-        if (!res.ok) throw new Error(`AI API error: ${res.status}`);
-        const data = await res.json();
-        const summary = data.choices?.[0]?.message?.content || '요약 결과 없음';
+        if (!resp?.success) throw new Error(resp?.status ? `AI API error: ${resp.status}` : (resp?.error || 'AI 요청 실패'));
+        const summary = resp.content || '요약 결과 없음';
         summaryCacheSet(cacheUrl, summary);
         showSummaryCard(summary);
       } catch (err) {
@@ -1142,10 +1217,24 @@
       fabSummary.title = '페이지 요약';
     });
 
+    // 캡처 버튼 (상단) — 클릭 시 FAB을 몇 초간 숨겨 화면 캡처를 돕는다
+    const fabCapture = document.createElement('button');
+    fabCapture.className = 'hotdog-fab hotdog-fab-capture';
+    fabCapture.innerHTML = '📸';
+    fabCapture.title = '캡처를 위해 잠시 숨기기';
+    fabCapture.addEventListener('click', (e) => {
+      e.stopPropagation();
+      chrome.storage.local.get('captureHideSec', (data) => {
+        const sec = typeof data.captureHideSec === 'number' ? data.captureHideSec : 3;
+        hideFabForCapture(sec * 1000);
+      });
+    });
+
     const fabContainer = document.createElement('div');
     fabContainer.className = 'hotdog-fab-container';
     fabContainer.appendChild(fabSummary);
     fabContainer.appendChild(fab);
+    fabContainer.appendChild(fabCapture);
     document.body.appendChild(fabContainer);
 
     // 저장된 위치 복원 (뷰포트 크기 대비 비율로 저장되어 있음)

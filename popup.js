@@ -13,8 +13,12 @@ const serverNameInput = document.getElementById('serverName');
 const serverEndpointInput = document.getElementById('serverEndpoint');
 const serverModelInput = document.getElementById('serverModel');
 const serverApiKeyInput = document.getElementById('serverApiKey');
+const formStatus = document.getElementById('formStatus');
 
 const summarizeBtn = document.getElementById('summarizeBtn');
+const captureHideSelect = document.getElementById('captureHide');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsStatus = document.getElementById('settingsStatus');
 
 const LANG_NAMES = {
   ko: 'Korean', en: 'English', ja: 'Japanese',
@@ -37,6 +41,10 @@ document.querySelectorAll('.btn-back').forEach((btn) => {
   btn.addEventListener('click', () => showView(btn.dataset.target));
 });
 
+settingsBtn.addEventListener('click', () => {
+  showView('viewSettings');
+});
+
 manageBtn.addEventListener('click', () => {
   renderServerList();
   showView('viewServers');
@@ -44,7 +52,8 @@ manageBtn.addEventListener('click', () => {
 
 document.getElementById('clearCacheBtn').addEventListener('click', () => {
   chrome.storage.local.remove('hotdogCache', () => {
-    setStatus('번역 캐시가 삭제되었습니다.', 'success');
+    settingsStatus.textContent = '번역 캐시가 삭제되었습니다.';
+    settingsStatus.className = 'status success';
   });
 });
 
@@ -101,29 +110,32 @@ summarizeBtn.addEventListener('click', async () => {
     const langName = LANG_NAMES[targetLang] || targetLang;
     const aiConfig = { endpoint: server.endpoint.replace(/\/+$/, ''), model: server.model, apiKey: server.apiKey };
 
-    const res = await fetch(`${aiConfig.endpoint}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.apiKey}` },
-      body: JSON.stringify({
+    // 혼합 콘텐츠/CORS 우회를 위해 background 서비스워커 경유로 호출
+    const resp = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({
+        action: 'aiChat',
+        endpoint: aiConfig.endpoint,
         model: aiConfig.model,
+        apiKey: aiConfig.apiKey,
         messages: [
           { role: 'system', content: `You are a summarizer. Summarize the following page content concisely in ${langName}. Format your response in markdown: use "- " for bullet points, "**bold**" for emphasis, and "## " for section headers if needed. Be specific, not generic.` },
           { role: 'user', content: pageText },
         ],
-      }),
+      }, (r) => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(r);
+      });
     });
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      const redacted = body.slice(0, 200).replace(
+    if (!resp?.success) {
+      const redacted = String(resp?.error || '알 수 없는 오류').slice(0, 200).replace(
         /sk-[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|gh[pous]_[A-Za-z0-9_]+|Bearer\s+\S+/gi,
         '[REDACTED]'
       );
-      throw new Error(`AI API error: ${res.status} ${redacted}`);
+      throw new Error(resp?.status ? `AI API error: ${resp.status} ${redacted}` : `AI 요청 실패: ${redacted}`);
     }
 
-    const data = await res.json();
-    const summary = data.choices?.[0]?.message?.content || '요약 결과 없음';
+    const summary = resp.content || '요약 결과 없음';
 
     // content.js의 슬라이드 카드로 표시 + 캐시 저장
     chrome.tabs.sendMessage(tab.id, { action: 'showSummaryCard', text: summary });
@@ -139,7 +151,7 @@ summarizeBtn.addEventListener('click', async () => {
 
 // --- 마이그레이션 + 초기 로드 ---
 
-chrome.storage.local.get(['targetLang', 'engine', 'aiEndpoint', 'aiModel', 'aiApiKey', 'aiServers'], (result) => {
+chrome.storage.local.get(['targetLang', 'engine', 'aiEndpoint', 'aiModel', 'aiApiKey', 'aiServers', 'captureHideSec'], (result) => {
   // 기존 flat 키 → aiServers 배열 마이그레이션
   if (result.aiEndpoint && !result.aiServers) {
     const migrated = {
@@ -158,6 +170,8 @@ chrome.storage.local.get(['targetLang', 'engine', 'aiEndpoint', 'aiModel', 'aiAp
   }
 
   if (result.targetLang) targetLangSelect.value = result.targetLang;
+
+  captureHideSelect.value = String(result.captureHideSec ?? 3);
 
   renderEngineOptions();
 
@@ -212,6 +226,12 @@ targetLangSelect.addEventListener('change', () => {
   chrome.storage.local.set({ targetLang: targetLangSelect.value });
 });
 
+// --- 캡처 숨김 시간 ---
+
+captureHideSelect.addEventListener('change', () => {
+  chrome.storage.local.set({ captureHideSec: parseInt(captureHideSelect.value, 10) });
+});
+
 // --- 서버 목록 (View 2) ---
 
 function renderServerList() {
@@ -255,6 +275,11 @@ function renderServerList() {
 
 // --- 서버 추가/편집 (View 3) ---
 
+function setFormStatus(message, type) {
+  formStatus.textContent = message;
+  formStatus.className = 'status' + (type ? ` ${type}` : '');
+}
+
 addServerBtn.addEventListener('click', () => {
   editingServerId = null;
   formTitle.textContent = '서버 추가';
@@ -264,6 +289,7 @@ addServerBtn.addEventListener('click', () => {
   serverApiKeyInput.value = '';
   serverApiKeyInput.placeholder = 'sk-...';
   patGuide.style.display = 'none';
+  setFormStatus('', '');
   showView('viewServerForm');
 });
 
@@ -316,16 +342,16 @@ function openEditForm(server) {
   serverEndpointInput.value = server.endpoint;
   serverModelInput.value = server.model;
   serverApiKeyInput.value = server.apiKey;
+  serverApiKeyInput.placeholder = 'sk-...';
+  patGuide.style.display = 'none';
+  setFormStatus('', '');
   showView('viewServerForm');
 }
 
 function isValidEndpoint(url) {
   try {
     const u = new URL(url);
-    if (u.protocol === 'https:') return true;
-    // localhost만 http 허용
-    if (u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]')) return true;
-    return false;
+    return u.protocol === 'https:' || u.protocol === 'http:';
   } catch {
     return false;
   }
@@ -337,10 +363,17 @@ saveServerBtn.addEventListener('click', () => {
   const model = serverModelInput.value.trim();
   const apiKey = serverApiKeyInput.value.trim();
 
-  if (!name || !endpoint || !model) return;
+  if (!name || !endpoint || !model) {
+    const missing = [];
+    if (!name) missing.push('서버 이름');
+    if (!endpoint) missing.push('Endpoint URL');
+    if (!model) missing.push('Model');
+    setFormStatus(`${missing.join(', ')}을(를) 입력해 주세요.`, 'error');
+    return;
+  }
 
   if (!isValidEndpoint(endpoint)) {
-    setStatus('Endpoint는 https:// 로 시작해야 합니다 (localhost는 http 허용).', 'error');
+    setFormStatus('Endpoint는 http:// 또는 https:// 로 시작해야 합니다.', 'error');
     return;
   }
 

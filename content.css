@@ -104,14 +104,73 @@
   opacity: 1;
 }
 
-.hotdog-fab--loading {
-  opacity: 1;
-  animation: hotdog-fab-glow 1.2s ease-in-out infinite;
+/* 번역 중: 핫도그가 "데워지는" 효과 (그릴 위 따뜻한 배경 + 바닥 열기 + 김 + 지글거림) */
+.hotdog-fab--loading,
+.hotdog-fab--loading:hover {
+  background: radial-gradient(circle at 50% 38%,
+    #fcd34d 0%, #f59e0b 58%, #ea580c 100%) !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  transform: none !important;
+  position: relative !important;
+  inset: auto !important; /* base의 bottom/right가 relative 오프셋으로 적용돼 FAB이 이동하는 것 방지 */
+  overflow: visible !important;
+  box-shadow: 0 0 16px rgba(234, 88, 12, 0.55) !important;
+  animation: none !important;
 }
 
-@keyframes hotdog-fab-glow {
-  0%, 100% { box-shadow: 0 0 4px rgba(245, 158, 11, 0.3); }
-  50% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.7), 0 0 40px rgba(245, 158, 11, 0.3); }
+/* 바닥에서 차오르는 열기 글로우 (가운데는 투명 → 🌭 유지) */
+.hotdog-fab--loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 118%,
+    rgba(239, 68, 68, 0.75) 0%,
+    rgba(251, 146, 60, 0.35) 42%,
+    rgba(255, 255, 255, 0) 70%);
+  animation: hotdog-fab-heat 1.1s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes hotdog-fab-heat {
+  0%, 100% { opacity: 0.3; }
+  50%      { opacity: 1; }
+}
+
+/* 위로 피어오르는 김(steam) — 3가닥이 떠오르며 사라짐 */
+.hotdog-fab--loading::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 1px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: -6px 2px 0 rgba(255, 255, 255, 0.75), 6px 2px 0 rgba(255, 255, 255, 0.75);
+  animation: hotdog-fab-steam 1.3s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes hotdog-fab-steam {
+  0%   { opacity: 0; transform: translate(-50%, 7px) scale(0.5); }
+  35%  { opacity: 0.85; }
+  100% { opacity: 0; transform: translate(-50%, -13px) scale(1.15); }
+}
+
+/* 지글지글 — 핫도그가 살짝 흔들림 */
+.hotdog-fab-emoji {
+  display: inline-block;
+}
+
+.hotdog-fab--loading .hotdog-fab-emoji {
+  animation: hotdog-fab-sizzle 0.36s ease-in-out infinite;
+}
+
+@keyframes hotdog-fab-sizzle {
+  0%, 100% { transform: translateY(0) rotate(-3.5deg); }
+  50%      { transform: translateY(-1px) rotate(3.5deg); }
 }
 
 /* YouTube 자막 오버레이 */
@@ -151,27 +210,61 @@
   font-size: 18px;
   width: 38px;
   height: 38px;
-  opacity: 0;
-  pointer-events: none;
-  transform: scale(0.5) translateY(10px);
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: scale(0.5) translateY(10px) !important;
   transition: all 0.2s;
 }
 
 .hotdog-fab-container:hover .hotdog-fab-summary,
 .hotdog-fab-summary.hotdog-fab--loading {
-  opacity: 0.7;
-  pointer-events: auto;
-  transform: scale(1) translateY(0);
+  opacity: 0.7 !important;
+  pointer-events: auto !important;
+  transform: scale(1) translateY(0) !important;
 }
 
 .hotdog-fab-container:hover .hotdog-fab-summary:hover {
-  opacity: 1;
-  transform: scale(1.1) translateY(0);
+  opacity: 1 !important;
+  transform: scale(1.1) translateY(0) !important;
 }
 
 .hotdog-fab-dragging .hotdog-fab-summary {
   opacity: 0 !important;
   pointer-events: none !important;
+}
+
+/* 캡처 FAB (상단) — hover 시 위로 나타남 */
+.hotdog-fab-capture {
+  font-size: 16px;
+  width: 38px;
+  height: 38px;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: scale(0.5) translateY(-10px) !important;
+  transition: all 0.2s;
+}
+
+.hotdog-fab-container:hover .hotdog-fab-capture {
+  opacity: 0.7 !important;
+  pointer-events: auto !important;
+  transform: scale(1) translateY(0) !important;
+}
+
+.hotdog-fab-container:hover .hotdog-fab-capture:hover {
+  opacity: 1 !important;
+  transform: scale(1.1) translateY(0) !important;
+}
+
+.hotdog-fab-dragging .hotdog-fab-capture {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* 캡처를 위해 FAB 전체를 잠시 숨김 */
+.hotdog-fab-container.hotdog-fab-hidden-capture {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.18s ease !important;
 }
 
 /* 요약 슬라이드 카드 */
