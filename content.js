@@ -1232,6 +1232,10 @@
 
     const fabContainer = document.createElement('div');
     fabContainer.className = 'hotdog-fab-container';
+    // agent 자동화(browser-relay)가 이 속성 요소를 수집에서 제외 — 확장의 플로팅
+    // 버튼(📸 캡처 등)을 페이지 콘텐츠로 오해해 오클릭하는 것을 막는 협약 (자손 버튼은
+    // browser-relay 의 closest() 조상 탐색으로 함께 제외됨).
+    fabContainer.setAttribute('data-agent-ignore', 'true');
     fabContainer.appendChild(fabSummary);
     fabContainer.appendChild(fab);
     fabContainer.appendChild(fabCapture);
@@ -1298,6 +1302,8 @@
 
     card = document.createElement('div');
     card.className = 'hotdog-summary-card';
+    // agent 자동화(browser-relay) 수집 제외 — 요약 패널의 버튼류를 오클릭하지 않도록.
+    card.setAttribute('data-agent-ignore', 'true');
     card.innerHTML = `
       <div class="hotdog-summary-header">
         <span>📋 페이지 요약</span>
@@ -1366,6 +1372,8 @@
     closeSelectionTooltip();
     const tip = document.createElement('div');
     tip.className = 'hotdog-selection-tooltip';
+    // agent 자동화(browser-relay) 수집 제외 — 선택 번역 팝업을 페이지 요소로 오해 방지.
+    tip.setAttribute('data-agent-ignore', 'true');
     const body = document.createElement('div');
     body.className = 'hotdog-selection-body';
     const loader = document.createElement('span');
