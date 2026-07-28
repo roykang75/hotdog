@@ -69,6 +69,15 @@
     'TEXTAREA', 'INPUT', 'SVG', 'MATH', 'KBD', 'VAR'
   ]);
 
+  // 인라인 텍스트 태그 — 최신 SPA(Cloudflare 대시보드 등)는 본문을 <p> 대신
+  // <span>으로 렌더링하고 그 span이 블록 형제(H1/DIV/svg) 옆에 놓이는 경우가 많다.
+  // 이때 span 자신은 블록 태그가 아니고 부모 DIV는 "직접 텍스트 없음"으로 걸러져
+  // 어느 규칙에도 걸리지 않으므로, 인라인 잎 요소도 수집 대상에 포함한다.
+  const INLINE_TEXT_TAGS = new Set([
+    'SPAN', 'A', 'LABEL', 'EM', 'STRONG', 'B', 'I',
+    'SMALL', 'MARK', 'ABBR', 'CITE', 'Q', 'TIME'
+  ]);
+
   // 콘텐츠 영역 셀렉터 — 구체적인 아티클 셀렉터 (우선)
   const CONTENT_AREA_SPECIFIC = [
     '.markdown-body',
@@ -160,11 +169,12 @@
           if (isVisuallyHidden(node)) return NodeFilter.FILTER_REJECT;
 
           const isDiv = node.tagName === 'DIV';
-          if (!BLOCK_TAGS.has(node.tagName) && !isDiv) return NodeFilter.FILTER_SKIP;
+          const isInline = INLINE_TEXT_TAGS.has(node.tagName);
+          if (!BLOCK_TAGS.has(node.tagName) && !isDiv && !isInline) return NodeFilter.FILTER_SKIP;
 
           const text = node.textContent.trim();
-          // DIV는 UI 파편 오수집 방지를 위해 더 엄격한 길이 기준
-          const minLen = isDiv ? 15 : 2;
+          // DIV/인라인은 UI 파편 오수집 방지를 위해 더 엄격한 길이 기준
+          const minLen = (isDiv || isInline) ? 15 : 2;
           if (text.length < minLen) return NodeFilter.FILTER_SKIP;
 
           // DIV는 자신의 직접 텍스트 노드가 있을 때만 수집 (버튼 그룹 등 자식 UI 래퍼 차단)
@@ -176,9 +186,17 @@
             if (!hasDirectText) return NodeFilter.FILTER_SKIP;
           }
 
+          // 인라인 요소는 조상이 이미 수집됐다면 중복 번역이 되므로 건너뛴다
+          // (P 안의 SPAN, 직접 텍스트를 가진 DIV 안의 SPAN 등)
+          if (isInline) {
+            for (let p = node.parentElement; p; p = p.parentElement) {
+              if (seen.has(p)) return NodeFilter.FILTER_SKIP;
+            }
+          }
+
           // 후손에 블록 요소가 있으면 건너뛰고 후손을 번역
-          // DIV는 후손 DIV/버튼/폼 컨트롤까지 포함해서 검사 (UI 파편 오수집 방지)
-          const descSelector = isDiv
+          // DIV/인라인은 후손 DIV/버튼/폼 컨트롤까지 포함해서 검사 (UI 파편 오수집 방지)
+          const descSelector = (isDiv || isInline)
             ? BLOCK_DESCENDANT_SELECTOR + ',div,button,[role="button"],form,select'
             : BLOCK_DESCENDANT_SELECTOR;
           if (node.querySelector(descSelector)) return NodeFilter.FILTER_SKIP;
