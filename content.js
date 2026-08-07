@@ -147,6 +147,12 @@
     const cn = typeof el.className === 'string' ? el.className : '';
     if (/\b(sr-only|visually-hidden|visuallyhidden|screen-reader)\b/i.test(cn)) return true;
     if (/InternalVisuallyHidden|ScreenReaderHeading/.test(cn)) return true;
+    // display:contents 래퍼는 자기 박스가 없어 rect가 0x0이지만 자식은 정상 렌더링된다.
+    // 여기서 숨김으로 오판하면 하위 트리 전체가 REJECT되어 통째로 번역에서 빠진다.
+    // (예: 반응형 레이아웃용 래퍼 — 모바일에서만 블록, PC에서는 display:contents)
+    const view = el.ownerDocument.defaultView || window;
+    if (el.getClientRects().length === 0 &&
+        view.getComputedStyle(el).display === 'contents') return false;
     // 1x1 px 이하로 클리핑된 요소 (Primer/Bootstrap sr-only 패턴)
     const r = el.getBoundingClientRect();
     if (r.width <= 1 && r.height <= 1) return true;
@@ -154,7 +160,8 @@
   }
 
   function collectBlockElements(root, elements, seen) {
-    const walker = document.createTreeWalker(
+    // root가 iframe 문서에 속할 수 있으므로 소유 문서 기준으로 워커를 만든다
+    const walker = (root.ownerDocument || document).createTreeWalker(
       root,
       NodeFilter.SHOW_ELEMENT,
       {
@@ -319,33 +326,22 @@
     }
   }
 
-  function getTranslatableElements() {
-    const elements = [];
-    const seen = new Set();
-
-    // YouTube 페이지: 전용 셀렉터로 수집
-    if (isYouTubeWatch()) {
-      collectYouTubeElements(elements, seen);
-      return elements;
-    }
-
-    // Gmail 페이지: 전용 셀렉터로 수집
-    if (isGmail()) {
-      collectGmailElements(elements, seen);
-      return elements;
-    }
+  function collectFromDocument(doc, elements, seen, bodyFallback) {
+    const before = elements.length;
 
     // 1단계: 구체적인 아티클 영역(.markdown-body, article 등) 수집
-    const specificAreas = document.querySelectorAll(CONTENT_AREA_SPECIFIC);
+    const specificAreas = doc.querySelectorAll(CONTENT_AREA_SPECIFIC);
     for (const area of specificAreas) {
       collectBlockElements(area, elements, seen);
     }
 
-    const specificChars = elements.reduce((n, el) => n + el.textContent.trim().length, 0);
-    const specificEnough = elements.length >= 5 && specificChars >= 500;
+    const specificChars = elements.slice(before)
+      .reduce((n, el) => n + el.textContent.trim().length, 0);
+    const specificEnough = (elements.length - before) >= 5 && specificChars >= 500;
 
     // 2단계: 아티클 영역 밖의 독립 단락 및 제목 (GitHub About 설명, Reddit 게시글 제목 등)
-    const mainEl = document.querySelector('main, [role="main"]') || document.body;
+    const mainEl = doc.querySelector('main, [role="main"]') || doc.body;
+    if (!mainEl) return;
     const HEADING_TAGS = new Set(['H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
     for (const el of mainEl.querySelectorAll('p, h1, h2, h3, h4, h5, h6')) {
       if (seen.has(el)) continue;
@@ -363,12 +359,111 @@
     // 3단계: 구체 영역이 충분치 않으면 main/#content 등 일반 컨테이너까지 확장
     //         (GitHub 레포 파일 표 같은 UI는 specific이 충분할 때 건드리지 않음)
     if (!specificEnough) {
-      for (const area of document.querySelectorAll(CONTENT_AREA_GENERIC)) {
+      for (const area of doc.querySelectorAll(CONTENT_AREA_GENERIC)) {
         collectBlockElements(area, elements, seen);
       }
+      // main/#content 류 컨테이너가 없는 iframe 본문(srcdoc 상품설명 등)은 body 전체를 대상으로.
+      // 최상위 문서에는 적용하지 않는다 — 기존 페이지 수집 결과를 그대로 유지하기 위함.
+      if (bodyFallback && !doc.querySelector(CONTENT_AREA_GENERIC) && doc.body) {
+        collectBlockElements(doc.body, elements, seen);
+      }
+    }
+  }
+
+  function getTranslatableElements() {
+    const elements = [];
+    const seen = new Set();
+
+    // YouTube 페이지: 전용 셀렉터로 수집
+    if (isYouTubeWatch()) {
+      collectYouTubeElements(elements, seen);
+      return elements;
+    }
+
+    // Gmail 페이지: 전용 셀렉터로 수집
+    if (isGmail()) {
+      collectGmailElements(elements, seen);
+      return elements;
+    }
+
+    collectFromDocument(document, elements, seen, false);
+
+    // 동일 출처 iframe 본문까지 확장.
+    // 쇼핑몰 상품설명은 <iframe srcdoc>로 렌더링되는 경우가 많은데,
+    // 콘텐츠 스크립트는 srcdoc/about:blank 프레임에 주입되지 않으므로
+    // 상위 프레임에서 contentDocument를 직접 순회해야 한다.
+    for (const doc of getSameOriginFrameDocs()) {
+      injectFrameStyle(doc);
+      collectFromDocument(doc, elements, seen, true);
     }
 
     return elements;
+  }
+
+  // 접근 가능한(동일 출처 · srcdoc · about:blank) iframe 문서 목록
+  function getSameOriginFrameDocs() {
+    const docs = [];
+    for (const frame of document.querySelectorAll('iframe, frame')) {
+      let doc = null;
+      try {
+        doc = frame.contentDocument;
+      } catch {
+        continue; // 교차 출처 — 접근 불가
+      }
+      if (!doc || !doc.body) continue;
+      if (doc === document) continue;
+      docs.push(doc);
+    }
+    return docs;
+  }
+
+  // content.css는 상위 문서에만 주입되므로 iframe 문서에는 최소 스타일을 직접 넣는다
+  const FRAME_STYLE_ID = 'hotdog-frame-style';
+  const FRAME_STYLE_CSS = [
+    '.hotdog-translation{display:block;margin-top:.3em;font-style:normal;',
+    'line-height:inherit;font-size:inherit;color:inherit;word-wrap:break-word;',
+    'clear:both;grid-column:1/-1;}',
+    '.hotdog-loading{display:block;margin-top:.3em;height:.9em;width:60%;',
+    'border-radius:4px;background:#d0d0d0;overflow:hidden;}',
+    '.hotdog-loading-shine{display:block;width:50%;height:100%;',
+    'background:linear-gradient(90deg,transparent,rgba(255,255,255,.9),transparent);',
+    'animation:hotdog-shimmer 1.2s ease-in-out infinite;}',
+    '@keyframes hotdog-shimmer{0%{transform:translateX(-150%)}100%{transform:translateX(250%)}}'
+  ].join('');
+
+  function injectFrameStyle(doc) {
+    if (doc.getElementById(FRAME_STYLE_ID)) return;
+    const style = doc.createElement('style');
+    style.id = FRAME_STYLE_ID;
+    style.textContent = FRAME_STYLE_CSS;
+    (doc.head || doc.documentElement).appendChild(style);
+  }
+
+  // 번역문이 추가되면 내용이 길어지므로, 높이가 고정된 iframe을 다시 맞춘다.
+  // 원래 높이를 dataset에 남겨 번역 제거 시 그대로 되돌린다.
+  function refitFrames() {
+    for (const frame of document.querySelectorAll('iframe, frame')) {
+      let doc = null;
+      try {
+        doc = frame.contentDocument;
+      } catch {
+        continue;
+      }
+      if (!doc || !doc.body) continue;
+
+      const hasTranslation = !!doc.querySelector('.hotdog-translation, .hotdog-loading');
+      if (hasTranslation) {
+        // 인라인 height로 크기가 고정된 프레임만 조정 (레이아웃 개입 최소화)
+        if (!frame.style.height && frame.dataset.hotdogOrigHeight === undefined) continue;
+        if (frame.dataset.hotdogOrigHeight === undefined) {
+          frame.dataset.hotdogOrigHeight = frame.style.height;
+        }
+        frame.style.height = doc.documentElement.scrollHeight + 'px';
+      } else if (frame.dataset.hotdogOrigHeight !== undefined) {
+        frame.style.height = frame.dataset.hotdogOrigHeight;
+        delete frame.dataset.hotdogOrigHeight;
+      }
+    }
   }
 
   // 바이트 ~900자 기준으로 구두점/공백 경계에서 분할 위치 선택
@@ -472,9 +567,11 @@
   }
 
   function addLoading(el) {
-    const loader = document.createElement('span');
+    // el이 iframe 문서 소속일 수 있으므로 소유 문서로 노드를 만든다
+    const doc = el.ownerDocument;
+    const loader = doc.createElement('span');
     loader.className = 'hotdog-loading';
-    const shine = document.createElement('span');
+    const shine = doc.createElement('span');
     shine.className = 'hotdog-loading-shine';
     loader.appendChild(shine);
     el.appendChild(loader);
@@ -486,7 +583,7 @@
       loader.remove();
       return false;
     }
-    const translationEl = document.createElement('span');
+    const translationEl = el.ownerDocument.createElement('span');
     translationEl.className = 'hotdog-translation';
     translationEl.textContent = translated;
     loader.remove();
@@ -576,6 +673,8 @@
     }
 
     saveCache();
+    // 번역문 삽입으로 늘어난 iframe 본문 높이 반영
+    refitFrames();
 
     if (elements.length === 0) {
       throw new Error('번역할 텍스트를 찾을 수 없습니다.');
@@ -627,9 +726,17 @@
     errorToastTimer = setTimeout(() => toast.remove(), 8000);
   }
 
+  const TRANSLATION_NODE_SELECTOR =
+    '.hotdog-translation, .hotdog-translation-wrap, .hotdog-loading, .hotdog-gmail-subject-wrap';
+
   function removeTranslations() {
     document.querySelector('.hotdog-error-toast')?.remove();
-    document.querySelectorAll('.hotdog-translation, .hotdog-translation-wrap, .hotdog-loading, .hotdog-gmail-subject-wrap').forEach((el) => el.remove());
+    document.querySelectorAll(TRANSLATION_NODE_SELECTOR).forEach((el) => el.remove());
+    // iframe 본문에 삽입한 번역도 함께 제거하고 프레임 높이를 되돌린다
+    for (const doc of getSameOriginFrameDocs()) {
+      doc.querySelectorAll(TRANSLATION_NODE_SELECTOR).forEach((el) => el.remove());
+    }
+    refitFrames();
     stopSubtitleSync();
     if (translationHidden) {
       translationHidden = false;
